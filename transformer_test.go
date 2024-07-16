@@ -1,16 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"testing"
 )
 
-// kind is underlying datatype
-// type is the userDefined data type.
-
 var testOplogQuery = map[string]struct {
 	Oplog
-	want string
+	Want string
 }{
 	"insertSingle": {
 		Oplog: Oplog{
@@ -24,20 +23,90 @@ var testOplogQuery = map[string]struct {
 				"date_of_birth": "2000-01-30",
 			},
 		},
-		// TODO: ask mohit on how to write test cases in this case..
-		// want: "INSERT INTO test.students(_id, name, roll_no, is_graduated, date_of_birth) VALUES ('635b79e231d82a8ab1de863b', 'Selena Miller', 51, false, '2000-01-30')",
+	},
+	"updateQuery": {
+		Oplog: Oplog{
+			Operation: "u",
+			Namespace: "test.student",
+			Object: map[string]interface{}{
+				"$v": 2,
+				"diff": map[string]interface{}{
+					"u": map[string]interface{}{
+						"is_graduated": true,
+						"name":         "dummy_name",
+					},
+				},
+				"o2": map[string]interface{}{
+					"_id": "635b79e231d82a8ab1de863b",
+				},
+			},
+		},
+		Want: "UPDATE test.student SET is_graduated = true, name = 'dummy_name' WHERE _id = '635b79e231d82a8ab1de863b'",
+	},
+	"updateQuerySetNull": {
+		Oplog: Oplog{
+			Operation: "u",
+			Namespace: "test.student",
+			Object: map[string]interface{}{
+				"$v": 2,
+				"diff": map[string]interface{}{
+					"d": map[string]interface{}{
+						"roll_no": false,
+						"name":    nil,
+					},
+				},
+				"o2": map[string]interface{}{
+					"_id": "635b79e231d82a8ab1de863b",
+				},
+			},
+		},
+		Want: "UPDATE test.student SET name = NULL, roll_no = NULL WHERE _id = '635b79e231d82a8ab1de863b'",
+	},
+	"deleteQuery": {
+		Oplog: Oplog{
+			Operation: "d",
+			Namespace: "test.student",
+			Object: map[string]interface{}{
+				"_id": "635b79e231d82a8ab1de863b",
+			},
+		},
+		Want: "DELETE FROM test.student WHERE _id = '635b79e231d82a8ab1de863b'",
 	},
 }
 
-func TestOplogInsertQuery(t *testing.T) {
+func TestOplogGenereateQuery(t *testing.T) {
 	for key, value := range testOplogQuery {
 		t.Run(key, func(t *testing.T) {
-			insertQuery := GetInsertQueryFromOplogUsingMap(value.Oplog)
-			fmt.Println(insertQuery)
-			if insertQuery == "" {
-				t.Errorf("got : %s \nwant:%s", insertQuery, value.want)
+			got := transformHandler(value.Oplog)
+			if (value.Want != "" && got != value.Want) || got == "" {
+				t.Errorf("got : %s", got)
 			}
 		})
 	}
+}
 
+func TestOpLogGeneric(t *testing.T) {
+	jsonStr := `{
+		"op": "u",
+		"ns": "test.student",
+		"o": {
+		   "$v": 2,
+		   "diff": {
+			  "u": {
+				 "is_graduated": true
+			  }
+		   }
+		},
+		 "o2": {
+		   "_id": "635b79e231d82a8ab1de863b"
+		}
+	 }`
+	var oplog Oplog
+	err := json.Unmarshal([]byte(jsonStr), &oplog)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	query := transformHandler(oplog)
+	fmt.Println(query)
 }

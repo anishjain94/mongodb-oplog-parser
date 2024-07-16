@@ -1,0 +1,42 @@
+# Ignore all
+*
+
+# Unignore all with extensions
+!*.*
+
+# Unignore all Makefile
+!*Makefile
+!*Dockerfile
+
+# Unignore all dirs
+!*/
+
+# Ignore certain extensions.
+*.tgz
+*.rpm
+*.zip
+*.pem
+*.retry
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.o
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Ignore folders.
+.idea
+*.iml
+pkg*
+bin*
+*vendor*
+dist/
+*dist*

@@ -1,38 +1,23 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"log"
 )
 
-func main() {
+func transformHandler(oplog Oplog) string {
 	var query string
 
-	for _, oplog := range exampleOpLogs {
-		var opLog Oplog
-		bytesData, err := json.Marshal(oplog)
+	switch oplog.Operation {
+	case EnumOperationInsert:
+		query = GetInsertQueryFromOplog(oplog)
 
-		if err != nil {
-			log.Fatalf(err.Error())
-		}
+	case EnumOperationUpdate:
+		query = GetUpdateQueryFromOplog(oplog)
 
-		err = json.Unmarshal(bytesData, &opLog)
-		if err != nil {
-			log.Fatalf(err.Error())
-		}
+	case EnumOperationDelete:
+		query = GetDeleteQueryFromOplog(oplog)
 
-		switch opLog.Operation {
-		case EnumOperationInsert:
-			query = GetInsertQueryFromOplogUsingMap(opLog)
-
-		case EnumOperationUpdate:
-			query = GetInsertQueryFromOplogUsingMap(opLog)
-
-		case EnumOperationDelete:
-			query = GetInsertQueryFromOplogUsingMap(opLog)
-
-		}
-		fmt.Println(query)
 	}
+	fmt.Println(query)
+	return query
 }
