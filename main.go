@@ -7,6 +7,7 @@ import (
 )
 
 func main() {
+	var query string
 
 	for _, oplog := range exampleOpLogs {
 		var opLog Oplog
@@ -21,7 +22,17 @@ func main() {
 			log.Fatalf(err.Error())
 		}
 
-		insertQuery := GetInsertQueryFromOplog(opLog)
-		fmt.Println(insertQuery)
+		switch opLog.Operation {
+		case EnumOperationInsert:
+			query = GetInsertQueryFromOplogUsingMap(opLog)
+
+		case EnumOperationUpdate:
+			query = GetInsertQueryFromOplogUsingMap(opLog)
+
+		case EnumOperationDelete:
+			query = GetInsertQueryFromOplogUsingMap(opLog)
+
+		}
+		fmt.Println(query)
 	}
 }

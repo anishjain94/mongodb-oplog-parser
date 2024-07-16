@@ -1,17 +1,9 @@
 package main
 
 type Oplog struct {
-	Operation EnumOperation `json:"op"` //operation
-	Namespace string        `json:"ns"` //namespace -> database.table_name
-	Object    StudentModel  `json:"o"`  //data for insertion/updation/deletion
-}
-
-type StudentModel struct {
-	ID          string `json:"_id"`
-	Name        string `json:"name"`
-	RollNo      int    `json:"roll_no"`
-	IsGraduated bool   `json:"is_graduated"`
-	DateOfBirth string `json:"date_of_birth"`
+	Operation EnumOperation          `json:"op"` //operation
+	Namespace string                 `json:"ns"` //namespace -> database.table_name
+	Object    map[string]interface{} `json:"o"`  //data for insertion/updation/deletion
 }
 
 var exampleOpLogs = []map[string]interface{}{
