@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
+	"slices"
 	"testing"
 )
 
 var testOplogQuery = map[string]struct {
 	Oplog
-	Want string
+	Want []string
 }{
 	"insertSingle": {
 		Oplog: Oplog{
@@ -21,6 +23,24 @@ var testOplogQuery = map[string]struct {
 				"roll_no":       51,
 				"is_graduated":  false,
 				"date_of_birth": "2000-01-30",
+			},
+		},
+		// Want: []string{
+		// 	"CREATE SCHEMA test;",
+		// 	"CREATE TABLE IF NOT EXISTS test.student(_id VARCHAR(255) PRIMARY KEY, name VARCHAR(255), roll_no INTEGER, is_graduated BOOLEAN, date_of_birth VARCHAR(255));",
+		// },
+	},
+	"insertSingleNewColumn": {
+		Oplog: Oplog{
+			Operation: "i",
+			Namespace: "test.student",
+			Object: map[string]interface{}{
+				"_id":           "635b79e231d82a8ab1de863b",
+				"name":          "Selena Miller",
+				"roll_no":       51,
+				"is_graduated":  false,
+				"date_of_birth": "2000-01-30",
+				"phone":         "+91-81254966457",
 			},
 		},
 	},
@@ -36,12 +56,12 @@ var testOplogQuery = map[string]struct {
 						"name":         "dummy_name",
 					},
 				},
-				"o2": map[string]interface{}{
-					"_id": "635b79e231d82a8ab1de863b",
-				},
+			},
+			Object2: map[string]interface{}{
+				"_id": "635b79e231d82a8ab1de863b",
 			},
 		},
-		Want: "UPDATE test.student SET is_graduated = true, name = 'dummy_name' WHERE _id = '635b79e231d82a8ab1de863b'",
+		Want: []string{"UPDATE test.student SET is_graduated = true, name = 'dummy_name' WHERE _id = '635b79e231d82a8ab1de863b'"},
 	},
 	"updateQuerySetNull": {
 		Oplog: Oplog{
@@ -55,12 +75,12 @@ var testOplogQuery = map[string]struct {
 						"name":    nil,
 					},
 				},
-				"o2": map[string]interface{}{
-					"_id": "635b79e231d82a8ab1de863b",
-				},
+			},
+			Object2: map[string]interface{}{
+				"_id": "635b79e231d82a8ab1de863b",
 			},
 		},
-		Want: "UPDATE test.student SET name = NULL, roll_no = NULL WHERE _id = '635b79e231d82a8ab1de863b'",
+		Want: []string{"UPDATE test.student SET name = NULL, roll_no = NULL WHERE _id = '635b79e231d82a8ab1de863b'"},
 	},
 	"deleteQuery": {
 		Oplog: Oplog{
@@ -70,7 +90,7 @@ var testOplogQuery = map[string]struct {
 				"_id": "635b79e231d82a8ab1de863b",
 			},
 		},
-		Want: "DELETE FROM test.student WHERE _id = '635b79e231d82a8ab1de863b'",
+		Want: []string{"DELETE FROM test.student WHERE _id = '635b79e231d82a8ab1de863b'"},
 	},
 }
 
@@ -78,8 +98,12 @@ func TestOplogGenereateQuery(t *testing.T) {
 	for key, value := range testOplogQuery {
 		t.Run(key, func(t *testing.T) {
 			got := transformHandler(value.Oplog)
-			if (value.Want != "" && got != value.Want) || got == "" {
-				t.Errorf("got : %s", got)
+
+			slices.Sort(got)
+			slices.Sort(value.Want)
+
+			if len(value.Want) != 0 && !reflect.DeepEqual(got, value.Want) {
+				t.Errorf("got : %s\nwant : %s", got, value.Want)
 			}
 		})
 	}

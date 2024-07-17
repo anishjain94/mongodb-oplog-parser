@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -27,16 +28,38 @@ func populateValuesInQuery(query string, values []interface{}) string {
 	return query
 }
 
-func GetInsertQueryFromOplog(opLog Oplog) string {
+func GetInsertQueryFromOplog(opLog Oplog) []string {
+	var queries []string
 	objectMap := make(map[string]interface{})
-	value := reflect.ValueOf(opLog.Object)
+	var columnsNames []string
 
-	if value.Kind() != reflect.Map {
+	// TODO: how do i handle error here.
+	if reflect.ValueOf(opLog.Object).Kind() != reflect.Map {
 		log.Panicf("Object field is not a struct")
 	}
 
+	// TODO: remove this.
 	for key, value := range opLog.Object {
 		objectMap[key] = value
+		columnsNames = append(columnsNames, key)
+	}
+
+	if _, exists := ShouldCreateSchemaQuery[opLog.Namespace]; !exists {
+		createSchemaQuery := GetCreateSchemaQuery(opLog.Namespace)
+		queries = append(queries, createSchemaQuery)
+		ShouldCreateSchemaQuery[opLog.Namespace] = true
+	}
+
+	if _, exists := ShouldCreateTableQuery[opLog.Namespace]; !exists {
+		createTableQuery := GetCreateTableQuery(opLog.Namespace, objectMap)
+		queries = append(queries, createTableQuery)
+		ShouldCreateTableQuery[opLog.Namespace] = true
+		TableColumnName[opLog.Namespace] = columnsNames
+	}
+
+	if len(columnsNames) != len(TableColumnName[opLog.Namespace]) {
+		alterQuery := GetCreateAlterQuery(opLog.Namespace, objectMap)
+		queries = append(queries, alterQuery)
 	}
 
 	columns := make([]string, 0, len(objectMap))
@@ -55,18 +78,78 @@ func GetInsertQueryFromOplog(opLog Oplog) string {
 		strings.Join(columns, ", "),
 		strings.Join(placeholders, ", "),
 	)
-
 	insertQuery = populateValuesInQuery(insertQuery, values)
-
-	return insertQuery
+	queries = append(queries, insertQuery)
+	return queries
 }
 
-func GetUpdateQueryFromOplog(opLog Oplog) string {
+func GetCreateAlterQuery(namespace string, objectMap map[string]interface{}) string {
+	existingColumns := TableColumnName[namespace]
+
+	for key, value := range objectMap {
+		if exist := slices.Contains(existingColumns, key); !exist {
+			dataType := getDataType(value)
+			return fmt.Sprintf("ALTER TABLE %s ADD %s %s;", namespace, key, dataType)
+		}
+	}
+
+	return ""
+}
+
+func GetCreateTableQuery(namespace string, objectMap map[string]interface{}) string {
+	placeholders := make([]string, 0, len(objectMap))
+	for range len(objectMap) {
+		placeholders = append(placeholders, "?")
+	}
+	placeHolder := strings.Join(placeholders, ", ")
+
+	for key, value := range objectMap {
+		dataType := getDataType(value)
+		columnAndType := fmt.Sprintf("%s %s", key, dataType)
+
+		if key == "_id" {
+			columnAndType = fmt.Sprintf("%s %s", columnAndType, "PRIMARY KEY")
+		}
+		placeHolder = strings.Replace(placeHolder, "?", columnAndType, 1)
+	}
+
+	createTableQuery := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(%s);\n",
+		namespace,
+		placeHolder,
+	)
+
+	return createTableQuery
+}
+
+func GetCreateSchemaQuery(namespace string) string {
+	namespaces := strings.Split(namespace, ".")
+
+	return fmt.Sprintf("CREATE SCHEMA %s;\n", namespaces[0])
+}
+
+func getDataType(value interface{}) string {
+	var replace string
+	switch value.(type) {
+	case string:
+		replace = "VARCHAR(255)"
+	case int, int64:
+		replace = "INTEGER"
+	case float64:
+		replace = "FLOAT"
+	case bool:
+		replace = "BOOLEAN"
+	case nil:
+		replace = "NULL"
+	}
+
+	return replace
+}
+
+func GetUpdateQueryFromOplog(opLog Oplog) []string {
 	objectMap := make(map[string]interface{})
 	value := reflect.ValueOf(opLog.Object)
 	dataToUpdate := make(map[string]interface{})
 	dataToSetNull := make(map[string]interface{})
-	whereClause := make(map[string]interface{})
 
 	if value.Kind() != reflect.Map {
 		log.Panicf("Object field is not a struct")
@@ -76,7 +159,7 @@ func GetUpdateQueryFromOplog(opLog Oplog) string {
 		objectMap[key] = value
 	}
 
-	whereClause = getDataFromInterface(objectMap["o2"].(map[string]interface{}))
+	whereClause := getDataFromInterface(opLog.Object2)
 
 	if diff, ok := objectMap["diff"].(map[string]interface{}); ok {
 		if u, ok := diff["u"].(map[string]interface{}); ok {
@@ -116,10 +199,10 @@ func GetUpdateQueryFromOplog(opLog Oplog) string {
 
 	updateQuery = populateValuesInQuery(updateQuery, values)
 
-	return updateQuery
+	return []string{updateQuery}
 }
 
-func GetDeleteQueryFromOplog(opLog Oplog) string {
+func GetDeleteQueryFromOplog(opLog Oplog) []string {
 	objectMap := make(map[string]interface{})
 	value := reflect.ValueOf(opLog.Object)
 
@@ -147,7 +230,7 @@ func GetDeleteQueryFromOplog(opLog Oplog) string {
 
 	updateQuery = populateValuesInQuery(updateQuery, values)
 
-	return updateQuery
+	return []string{updateQuery}
 }
 
 func getDataFromInterface(data map[string]interface{}) map[string]interface{} {

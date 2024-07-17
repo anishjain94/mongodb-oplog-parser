@@ -4,8 +4,8 @@ import (
 	"fmt"
 )
 
-func transformHandler(oplog Oplog) string {
-	var query string
+func transformHandler(oplog Oplog) []string {
+	var query []string
 
 	switch oplog.Operation {
 	case EnumOperationInsert:

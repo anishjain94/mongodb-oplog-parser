@@ -8,3 +8,6 @@ const (
 	EnumOperationDelete EnumOperation = "d"
 )
 
+var ShouldCreateSchemaQuery = make(map[string]bool)
+var ShouldCreateTableQuery = make(map[string]bool)
+var TableColumnName = make(map[string][]string)
