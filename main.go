@@ -70,7 +70,6 @@ func displayOutput(fileConfig FlagConfig, queries []string) error {
 }
 
 func readFile(fileConfig FlagConfig) []Oplog {
-
 	file, err := os.Open(*fileConfig.InputFilePath)
 	if err != nil {
 		log.Fatal(err)

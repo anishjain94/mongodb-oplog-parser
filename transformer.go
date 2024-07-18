@@ -106,7 +106,7 @@ func handleMapValue(key string, mapValue map[string]interface{}, foreignKeyRelat
 
 	idColumnExists := slices.Contains(columnNames, "_id")
 
-	// If id column does not exists that means that its a sub object. So we create _id and foreign key column
+	// If id column does not exists that means that its a nested object. So we create _id and foreign key column
 	if !idColumnExists {
 		mapValue["_id"] = uuid.New().String()
 		if foreignKeyRelation != nil {
@@ -165,14 +165,15 @@ func GetInsertTableQuery(namespace string, objectMap map[string]interface{}) (st
 	return insertQuery, nil
 }
 
-// TODO: no need to return error..
 func GetCreateAlterQuery(namespace string, objectMap map[string]interface{}) (string, error) {
 	existingColumns := TableColumnName[namespace]
 
-	for key, value := range objectMap {
-		if exist := slices.Contains(existingColumns, key); !exist {
+	for columnName, value := range objectMap {
+		if exist := slices.Contains(existingColumns, columnName); !exist {
 			dataType := getDataType(value)
-			return fmt.Sprintf("ALTER TABLE %s ADD %s %s;\n\n", namespace, key, dataType), nil
+			TableColumnName[namespace] = append(TableColumnName[namespace], columnName)
+
+			return fmt.Sprintf("ALTER TABLE %s ADD %s %s;\n\n", namespace, columnName, dataType), nil
 		}
 	}
 
