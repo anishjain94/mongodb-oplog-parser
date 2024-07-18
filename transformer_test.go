@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-	"slices"
 	"testing"
 )
 
@@ -25,10 +24,6 @@ var testOplogQuery = map[string]struct {
 				"date_of_birth": "2000-01-30",
 			},
 		},
-		// Want: []string{
-		// 	"CREATE SCHEMA test;",
-		// 	"CREATE TABLE IF NOT EXISTS test.student(_id VARCHAR(255) PRIMARY KEY, name VARCHAR(255), roll_no INTEGER, is_graduated BOOLEAN, date_of_birth VARCHAR(255));",
-		// },
 	},
 	"insertSingleNewColumn": {
 		Oplog: Oplog{
@@ -92,15 +87,72 @@ var testOplogQuery = map[string]struct {
 		},
 		Want: []string{"DELETE FROM test.student WHERE _id = '635b79e231d82a8ab1de863b'"},
 	},
+	"nestedObject1": {
+		Oplog: Oplog{
+			Operation: "i",
+			Namespace: "test.student",
+			Object: map[string]interface{}{
+				"_id":           "635b79e231d82a8ab1de863b",
+				"name":          "Selena Miller",
+				"roll_no":       51,
+				"is_graduated":  false,
+				"date_of_birth": "2000-01-30",
+				"phone": map[string]interface{}{
+					"personal": "7678456640",
+					"work":     "8130097989",
+				},
+				"address": []map[string]interface{}{
+					{
+						"line1": "481 Harborsburgh",
+						"zip":   "89799",
+					},
+					{
+						"line1": "329 Flatside",
+						"zip":   "80872",
+					},
+				},
+			},
+		},
+	},
+	"nestedObject2": {
+		Oplog: Oplog{
+			Operation: "i",
+			Namespace: "test.student",
+			Object: map[string]interface{}{
+				"_id":           "635b79e231d82a8ab1de863b",
+				"name":          "Selena Miller",
+				"roll_no":       51,
+				"is_graduated":  false,
+				"date_of_birth": "2000-01-30",
+				"phone": map[string]interface{}{
+					"personal": "7678456640",
+					"work":     "8130097989",
+					"home":     "8989723",
+				},
+				"address": []map[string]interface{}{
+					{
+						"line1":   "481 Harborsburgh",
+						"zip":     "89799",
+						"pincode": "123",
+					},
+					{
+						"line1": "329 Flatside",
+						"zip":   "80872",
+					},
+				},
+			},
+		},
+	},
 }
 
 func TestOplogGenereateQuery(t *testing.T) {
 	for key, value := range testOplogQuery {
 		t.Run(key, func(t *testing.T) {
-			got := transformHandler(value.Oplog)
+			got, err := transformHandler(value.Oplog)
 
-			slices.Sort(got)
-			slices.Sort(value.Want)
+			if err != nil {
+				t.Error(err)
+			}
 
 			if len(value.Want) != 0 && !reflect.DeepEqual(got, value.Want) {
 				t.Errorf("got : %s\nwant : %s", got, value.Want)
@@ -131,6 +183,10 @@ func TestOpLogGeneric(t *testing.T) {
 		log.Fatal(err.Error())
 	}
 
-	query := transformHandler(oplog)
+	query, err := transformHandler(oplog)
+	if err != nil {
+		t.Error(err)
+	}
+
 	fmt.Println(query)
 }

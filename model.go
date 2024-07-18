@@ -8,3 +8,8 @@ type Oplog struct {
 	// For updation and deletion
 	Object2 map[string]interface{} `json:"o2,omitempty"`
 }
+
+type ForeignKeyRelation struct {
+	ColumnName string
+	Value      interface{}
+}
