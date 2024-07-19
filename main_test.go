@@ -12,10 +12,14 @@ func TestMain(t *testing.T) {
 		InputFilePath:  &inputFile,
 		OutputFilePath: &outputFile,
 	}
-	decodedData := readFile(config)
+
+	decodedData, err := readFile(config)
+	if err != nil {
+		t.Error(err)
+	}
 
 	for _, logs := range decodedData {
-		queriesToAppend, err := transformHandler(logs)
+		queriesToAppend := GetSqlQueries(logs)
 		if err != nil {
 			t.Error(err)
 		}

@@ -13,3 +13,5 @@ type ForeignKeyRelation struct {
 	ColumnName string
 	Value      interface{}
 }
+
+// TODO: ask chinmay on how to test when ordering of columns is inconsistent.

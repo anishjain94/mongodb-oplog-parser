@@ -8,6 +8,20 @@ import (
 	"os"
 )
 
+// TODO: read about how and when is memory allocated to variables and global variables.
+// TODO: handle race conditions for these global maps.
+// TODO: think of a better name.
+
+var CreateSchemaQueryExists map[string]bool
+var CreateTableQueryExists map[string]bool
+var TableColumnName map[string][]string
+
+func init() {
+	CreateSchemaQueryExists = make(map[string]bool)
+	CreateTableQueryExists = make(map[string]bool)
+	TableColumnName = make(map[string][]string)
+}
+
 func main() {
 	fileConfig := parseFlags()
 
@@ -16,24 +30,27 @@ func main() {
 	}
 
 	var queries []string
-	decodedData := readFile(fileConfig)
+	decodedData, err := readFile(*fileConfig)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	for _, logs := range decodedData {
-		queriesToAppend, err := transformHandler(logs)
+		sqlQueries := GetSqlQueries(logs)
 		if err != nil {
 			log.Fatal(err)
 		}
-		queries = append(queries, queriesToAppend...)
+		queries = append(queries, sqlQueries...)
 	}
 
-	err := displayOutput(fileConfig, queries)
+	err = displayOutput(*fileConfig, queries)
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func parseFlags() FlagConfig {
-	inputFilePath := flag.String("i", "", "oplog json file path")
+func parseFlags() *FlagConfig {
+	inputFilePath := flag.String("i", "example.json", "oplog json file path")
 	outputFilePath := flag.String("o", "output.sql", "output file path")
 
 	flag.Parse()
@@ -42,7 +59,7 @@ func parseFlags() FlagConfig {
 		OutputFilePath: outputFilePath,
 	}
 
-	return fileConfig
+	return &fileConfig
 }
 
 func displayOutput(fileConfig FlagConfig, queries []string) error {
@@ -54,6 +71,7 @@ func displayOutput(fileConfig FlagConfig, queries []string) error {
 
 	buffer := bufio.NewWriter(file)
 
+	// TODO: do chunk insertion into files and then flush it.
 	for _, query := range queries {
 		_, err := buffer.Write([]byte(query))
 		if err != nil {
@@ -69,27 +87,31 @@ func displayOutput(fileConfig FlagConfig, queries []string) error {
 
 }
 
-func readFile(fileConfig FlagConfig) []Oplog {
+// TODO: handle permission problems, file does not exist, too many files opened.
+func readFile(fileConfig FlagConfig) ([]Oplog, error) {
 	file, err := os.Open(*fileConfig.InputFilePath)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	defer file.Close()
 
 	var decodedData []Oplog
 
 	decoder := json.NewDecoder(file)
-	decoder.Decode(&decodedData)
-	return decodedData
+	err = decoder.Decode(&decodedData)
+	if err != nil {
+		return nil, err
+	}
+
+	return decodedData, nil
 }
 
-func transformHandler(oplog Oplog) ([]string, error) {
+func GetSqlQueries(oplog Oplog) []string {
 	var query []string
-	var err error
 
 	switch oplog.Operation {
 	case EnumOperationInsert:
-		query, err = GetInsertQueryFromOplog(oplog)
+		query = GetInsertQueryFromOplog(oplog)
 
 	case EnumOperationUpdate:
 		query = GetUpdateQueryFromOplog(oplog)
@@ -99,9 +121,5 @@ func transformHandler(oplog Oplog) ([]string, error) {
 
 	}
 
-	if err != nil {
-		return nil, err
-	}
-
-	return query, nil
+	return query
 }

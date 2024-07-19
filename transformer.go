@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// TODO: write a unit test for this function.
 func populateValuesInQuery(query string, values []interface{}) string {
 	for _, v := range values {
 		replace := "?"
@@ -30,126 +31,98 @@ func populateValuesInQuery(query string, values []interface{}) string {
 	return query
 }
 
-func GetInsertQueryFromOplog(opLog Oplog) ([]string, error) {
-	if reflect.ValueOf(opLog.Object).Kind() != reflect.Map {
-		return nil, fmt.Errorf("object field is not a struct")
-	}
-
+func GetInsertQueryFromOplog(opLog Oplog) []string {
 	var queries []string
+	opLogNameSpace := strings.Split(opLog.Namespace, ".")
+	schemaName := opLogNameSpace[0]
+	parentTableName := opLogNameSpace[1]
 
-	if !CreateSchemaQueryExists[opLog.Namespace] {
-		createSchemaQuery, err := GetCreateSchemaQuery(opLog.Namespace)
-		if err != nil {
-			return nil, err
-		}
+	if !CreateSchemaQueryExists[schemaName] {
+		createSchemaQuery := GetCreateSchemaQuery(schemaName)
+
 		queries = append(queries, createSchemaQuery)
-		CreateSchemaQueryExists[opLog.Namespace] = true
+		CreateSchemaQueryExists[schemaName] = true
 	}
 
 	for key, value := range opLog.Object {
 		tableName := opLog.Namespace + "_" + key
-		nameSpace := strings.Split(opLog.Namespace, ".")
-		foreignKeyName := nameSpace[1] + "__id"
+		foreignKeyName := parentTableName + "__id"
 
-		foreignKeyValue, err := GetValueFromObject("_id", opLog.Object)
-		if err != nil {
-			return nil, err
-		}
+		foreignKeyValue := GetValueFromObject("_id", opLog.Object)
 
 		switch v := value.(type) {
 		case map[string]interface{}:
-			query, err := handleMapValue(tableName, v, &ForeignKeyRelation{
+			query := handleQueryCreation(tableName, v, &ForeignKeyRelation{
 				ColumnName: foreignKeyName,
 				Value:      foreignKeyValue,
 			})
-			if err != nil {
-				return nil, err
-			}
+
 			queries = append(queries, query...)
 			delete(opLog.Object, key) //NOTE: deleting nested key so that this key does not appear in create table for document.
 
 		case []interface{}:
 			for _, item := range v {
 				temp := item.(map[string]interface{})
-				query, err := handleMapValue(tableName, temp, &ForeignKeyRelation{
+				query := handleQueryCreation(tableName, temp, &ForeignKeyRelation{
 					ColumnName: foreignKeyName,
 					Value:      foreignKeyValue,
 				})
-				if err != nil {
-					return nil, err
-				}
+
 				queries = append(queries, query...)
 			}
 			delete(opLog.Object, key) //NOTE: deleting nested key so that this key does not appear in create table for document.
 		}
 	}
 
-	schemaQueries, err := handleMapValue(opLog.Namespace, opLog.Object, nil)
-	if err != nil {
-		return nil, err
-	}
+	schemaQueries := handleQueryCreation(opLog.Namespace, opLog.Object, nil)
 
 	queries = append(queries, schemaQueries...)
-	return queries, nil
+	return queries
 }
 
-func GetValueFromObject(key string, object map[string]interface{}) (interface{}, error) {
+func GetValueFromObject(key string, object map[string]interface{}) interface{} {
 	if value, exists := object[key]; exists {
-		return value, nil
+		return value
 	}
-	return nil, fmt.Errorf("%s not found", key)
+	return nil
 }
 
-func handleMapValue(key string, mapValue map[string]interface{}, foreignKeyRelation *ForeignKeyRelation) ([]string, error) {
+func handleQueryCreation(tableName string, data map[string]interface{}, foreignKeyRelation *ForeignKeyRelation) []string {
 	var queries []string
-	columnNames := getKeys(mapValue)
 
-	idColumnExists := slices.Contains(columnNames, "_id")
-
+	idColumnExists := slices.Contains(getKeys(data), "_id")
 	// If id column does not exists that means that its a nested object. So we create _id and foreign key column
 	if !idColumnExists {
-		mapValue["_id"] = uuid.New().String()
+		data["_id"] = uuid.New().String()
 		if foreignKeyRelation != nil {
-			mapValue[foreignKeyRelation.ColumnName] = foreignKeyRelation.Value
-		} else {
-			return nil, fmt.Errorf("no foreign key id found")
+			data[foreignKeyRelation.ColumnName] = foreignKeyRelation.Value
 		}
 	}
+	columnNames := getKeys(data)
 
-	if !CreateTableQueryExists[key] {
-		createTableQuery, err := GetCreateTableQuery(key, mapValue)
-		if err != nil {
-			return nil, err
-		}
+	if !CreateTableQueryExists[tableName] {
+		createTableQuery := GetCreateTableQuery(tableName, data)
+
 		queries = append(queries, createTableQuery)
-		CreateTableQueryExists[key] = true
-		TableColumnName[key] = columnNames
+		CreateTableQueryExists[tableName] = true
+		TableColumnName[tableName] = columnNames
 	}
 
-	if len(columnNames) != len(TableColumnName[key]) {
-		alterQuery, err := GetCreateAlterQuery(key, mapValue)
-		if err != nil {
-			return nil, err
-		}
-		queries = append(queries, alterQuery)
-	}
+	alterQueries := GetCreateAlterQuery(tableName, data)
+	queries = append(queries, alterQueries...)
 
-	insertQuery, err := GetInsertTableQuery(key, mapValue)
-	if err != nil {
-		return nil, err
-	}
+	insertQuery := GetInsertTableQuery(tableName, data)
 	queries = append(queries, insertQuery)
 
-	return queries, nil
+	return queries
 }
 
-// TODO: error
-func GetInsertTableQuery(namespace string, objectMap map[string]interface{}) (string, error) {
-	columns := make([]string, 0, len(objectMap))
-	values := make([]interface{}, 0, len(objectMap))
-	var placeholders []string
+func GetInsertTableQuery(tableName string, data map[string]interface{}) string {
+	columns := make([]string, 0, len(data))
+	values := make([]interface{}, 0, len(data))
+	placeholders := make([]string, 0, len(data))
 
-	for key, value := range objectMap {
+	for key, value := range data {
 		columns = append(columns, key)
 		values = append(values, value)
 		placeholders = append(placeholders, "?")
@@ -157,27 +130,31 @@ func GetInsertTableQuery(namespace string, objectMap map[string]interface{}) (st
 
 	insertQuery := fmt.Sprintf(
 		"INSERT INTO %s(%s) VALUES (%s);\n\n",
-		namespace,
+		tableName,
 		strings.Join(columns, ", "),
 		strings.Join(placeholders, ", "),
 	)
+	// insert into tablename(id, name, phone) values (?, ?, ?);
+	// TODO: can replace (?, ?, ?) with direct values instead of using placeholders.
+	// TODO: read about prepared statements in sql
 	insertQuery = populateValuesInQuery(insertQuery, values)
-	return insertQuery, nil
+	return insertQuery
 }
 
-func GetCreateAlterQuery(namespace string, objectMap map[string]interface{}) (string, error) {
-	existingColumns := TableColumnName[namespace]
+func GetCreateAlterQuery(tableName string, data map[string]interface{}) []string {
+	existingColumns := TableColumnName[tableName]
+	var alterStatements []string
 
-	for columnName, value := range objectMap {
+	for columnName, value := range data {
 		if exist := slices.Contains(existingColumns, columnName); !exist {
 			dataType := getDataType(value)
-			TableColumnName[namespace] = append(TableColumnName[namespace], columnName)
+			TableColumnName[tableName] = append(TableColumnName[tableName], columnName)
 
-			return fmt.Sprintf("ALTER TABLE %s ADD %s %s;\n\n", namespace, columnName, dataType), nil
+			alterStatements = append(alterStatements, fmt.Sprintf("ALTER TABLE %s ADD %s %s;\n\n", tableName, columnName, dataType))
 		}
 	}
 
-	return "", fmt.Errorf("cannot create alter table")
+	return alterStatements
 }
 
 func getKeys(m map[string]interface{}) []string {
@@ -188,53 +165,54 @@ func getKeys(m map[string]interface{}) []string {
 	return keys
 }
 
-func GetCreateTableQuery(namespace string, objectMap map[string]interface{}) (string, error) {
-	placeholders := make([]string, 0, len(objectMap))
-	for range len(objectMap) {
-		placeholders = append(placeholders, "?")
+func GetCreateTableQuery(tableName string, data map[string]interface{}) string {
+	var placeHolders []string
+	for range len(data) {
+		placeHolders = append(placeHolders, "?")
 	}
-	placeHolder := strings.Join(placeholders, ", ")
+	placeHolder := strings.Join(placeHolders, ",")
 
-	for key, value := range objectMap {
-		dataType := getDataType(value)
+	for key, value := range data {
+		dataType := getDataType(value) //TODO: why ints are getting decoded as floats.
 		columnAndType := fmt.Sprintf("%s %s", key, dataType)
 
 		if key == "_id" {
 			columnAndType = fmt.Sprintf("%s %s", columnAndType, "PRIMARY KEY")
 		}
-		placeHolder = strings.Replace(placeHolder, "?", columnAndType, 1)
+		placeHolder = strings.Replace(placeHolder, "?", columnAndType, 1) //TODO: can use strings.buffer to create query.
 	}
 
 	createTableQuery := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(%s);\n\n",
-		namespace,
+		tableName,
 		placeHolder,
 	)
 
-	return createTableQuery, nil
+	return createTableQuery
 }
 
-func GetCreateSchemaQuery(namespace string) (string, error) {
-	namespaces := strings.Split(namespace, ".")
-
-	return fmt.Sprintf("CREATE SCHEMA %s;\n\n", namespaces[0]), nil
+func GetCreateSchemaQuery(schemaName string) string {
+	return fmt.Sprintf("CREATE SCHEMA %s;\n\n", schemaName)
 }
 
 func getDataType(value interface{}) string {
-	var replace string
+	var dataType string
 	switch value.(type) {
 	case string:
-		replace = "VARCHAR(255)"
-	case int, int64:
-		replace = "INTEGER"
-	case float64:
-		replace = "FLOAT"
+		return "VARCHAR(255)"
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return "INTEGER"
+	case float32, float64:
+		if _, ok := value.(int); ok {
+			return "INTEGER"
+		}
+		return "FLOAT"
 	case bool:
-		replace = "BOOLEAN"
+		return "BOOLEAN"
 	case nil:
-		replace = "NULL"
+		dataType = "NULL"
 	}
 
-	return replace
+	return dataType
 }
 
 func GetUpdateQueryFromOplog(opLog Oplog) []string {

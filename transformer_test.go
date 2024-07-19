@@ -148,11 +148,7 @@ var testOplogQuery = map[string]struct {
 func TestOplogGenereateQuery(t *testing.T) {
 	for key, value := range testOplogQuery {
 		t.Run(key, func(t *testing.T) {
-			got, err := transformHandler(value.Oplog)
-
-			if err != nil {
-				t.Error(err)
-			}
+			got := GetSqlQueries(value.Oplog)
 
 			if len(value.Want) != 0 && !reflect.DeepEqual(got, value.Want) {
 				t.Errorf("got : %s\nwant : %s", got, value.Want)
@@ -183,10 +179,7 @@ func TestOpLogGeneric(t *testing.T) {
 		log.Fatal(err.Error())
 	}
 
-	query, err := transformHandler(oplog)
-	if err != nil {
-		t.Error(err)
-	}
+	query := GetSqlQueries(oplog)
 
 	fmt.Println(query)
 }
