@@ -6,6 +6,8 @@ import (
 	"flag"
 	"log"
 	"os"
+
+	"github.com/joho/godotenv"
 )
 
 // TODO: read about how and when is memory allocated to variables and global variables.
@@ -17,6 +19,10 @@ var CreateTableQueryExists map[string]bool
 var TableColumnName map[string][]string
 
 func init() {
+	err := godotenv.Load("./.env")
+	if err != nil {
+		log.Fatal("unable to load " + ".env file")
+	}
 	CreateSchemaQueryExists = make(map[string]bool)
 	CreateTableQueryExists = make(map[string]bool)
 	TableColumnName = make(map[string][]string)

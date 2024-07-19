@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 // TODO: write a unit test for this function.
@@ -17,9 +18,9 @@ func populateValuesInQuery(query string, values []interface{}) string {
 		switch v := v.(type) {
 		case string:
 			replace = fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "''"))
-		case int, int64:
+		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64: //TODO: better way to do this.
 			replace = fmt.Sprintf("%d", v)
-		case float64:
+		case float32, float64:
 			replace = fmt.Sprintf("%f", v)
 		case bool:
 			replace = fmt.Sprintf("%t", v)
@@ -47,12 +48,10 @@ func GetInsertQueryFromOplog(opLog Oplog) []string {
 	for key, value := range opLog.Object {
 		tableName := opLog.Namespace + "_" + key
 		foreignKeyName := parentTableName + "__id"
-
 		foreignKeyValue := GetValueFromObject("_id", opLog.Object)
-
-		switch v := value.(type) {
+		switch data := value.(type) {
 		case map[string]interface{}:
-			query := handleQueryCreation(tableName, v, &ForeignKeyRelation{
+			query := handleQueryCreation(tableName, data, &ForeignKeyRelation{
 				ColumnName: foreignKeyName,
 				Value:      foreignKeyValue,
 			})
@@ -61,9 +60,22 @@ func GetInsertQueryFromOplog(opLog Oplog) []string {
 			delete(opLog.Object, key) //NOTE: deleting nested key so that this key does not appear in create table for document.
 
 		case []interface{}:
-			for _, item := range v {
-				temp := item.(map[string]interface{})
+			for _, item := range data {
+				temp := item.(map[string]interface{}) //type assertion
 				query := handleQueryCreation(tableName, temp, &ForeignKeyRelation{
+					ColumnName: foreignKeyName,
+					Value:      foreignKeyValue,
+				})
+
+				queries = append(queries, query...)
+			}
+			delete(opLog.Object, key) //NOTE: deleting nested key so that this key does not appear in create table for document.
+
+		case bson.A:
+			temp := []interface{}(data) //type conversion
+			for _, item := range temp {
+				item := item.(map[string]interface{})
+				query := handleQueryCreation(tableName, item, &ForeignKeyRelation{
 					ColumnName: foreignKeyName,
 					Value:      foreignKeyValue,
 				})
@@ -191,7 +203,7 @@ func GetCreateTableQuery(tableName string, data map[string]interface{}) string {
 }
 
 func GetCreateSchemaQuery(schemaName string) string {
-	return fmt.Sprintf("CREATE SCHEMA %s;\n\n", schemaName)
+	return fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s;\n\n", schemaName)
 }
 
 func getDataType(value interface{}) string {

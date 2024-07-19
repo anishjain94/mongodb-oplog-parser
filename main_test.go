@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestMain(t *testing.T) {
 	var queries []string
@@ -27,4 +30,21 @@ func TestMain(t *testing.T) {
 	}
 
 	displayOutput(config, queries)
+}
+
+func TestMongo(t *testing.T) {
+	ctx := context.Background()
+	InitializeMongoDb()
+	InitializePostgres()
+
+	var queries []string
+	opLogs := GetOpLogs()
+
+	for _, opLog := range opLogs {
+		queriesToAppend := GetSqlQueries(opLog)
+		queries = append(queries, queriesToAppend...)
+	}
+
+	executeQueries(&ctx, queries)
+
 }

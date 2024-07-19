@@ -1,12 +1,12 @@
 package main
 
 type Oplog struct {
-	Operation EnumOperation          `json:"op"` //operation
-	Namespace string                 `json:"ns"` //namespace -> database.table_name
-	Object    map[string]interface{} `json:"o"`  //data for insertion/updation/deletion
+	Operation EnumOperation          `bson:"op" json:"op"` //operation
+	Namespace string                 `bson:"ns" json:"ns"` //namespace -> database.table_name
+	Object    map[string]interface{} `bson:"o" json:"o"`   //data for insertion/updation/deletion
 
 	// For updation and deletion
-	Object2 map[string]interface{} `json:"o2,omitempty"`
+	Object2 map[string]interface{} `bson:"o2,omitempty" json:"o2,omitempty"`
 }
 
 type ForeignKeyRelation struct {
