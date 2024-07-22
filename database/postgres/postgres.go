@@ -1,8 +1,9 @@
-package main
+package postgres
 
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -37,7 +38,7 @@ func GetDb(ctx *context.Context) *gorm.DB {
 	return gormDB.WithContext(*ctx)
 }
 
-func executeQueries(ctx *context.Context, queries []string) error {
+func ExecuteQueries(ctx *context.Context, queries ...string) error {
 	db := GetDb(ctx)
 
 	db.Transaction(func(tx *gorm.DB) error {
@@ -45,7 +46,7 @@ func executeQueries(ctx *context.Context, queries []string) error {
 			result := tx.Exec(query)
 
 			if result.Error != nil {
-				fmt.Println(result.Error)
+				log.Println(result.Error)
 				return result.Error
 			}
 		}

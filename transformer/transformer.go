@@ -1,4 +1,4 @@
-package main
+package transformer
 
 import (
 	"fmt"
@@ -7,9 +7,29 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/anishjain94/mongo-oplog-to-sql/constants"
+	"github.com/anishjain94/mongo-oplog-to-sql/models"
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 )
+
+func GetSqlQueries(oplog models.Oplog) []string {
+	var query []string
+
+	switch oplog.Operation {
+	case constants.EnumOperationInsert:
+		query = GetInsertQueryFromOplog(oplog)
+
+	case constants.EnumOperationUpdate:
+		query = GetUpdateQueryFromOplog(oplog)
+
+	case constants.EnumOperationDelete:
+		query = GetDeleteQueryFromOplog(oplog)
+
+	}
+
+	return query
+}
 
 // TODO: write a unit test for this function.
 func populateValuesInQuery(query string, values []interface{}) string {
@@ -32,17 +52,17 @@ func populateValuesInQuery(query string, values []interface{}) string {
 	return query
 }
 
-func GetInsertQueryFromOplog(opLog Oplog) []string {
+func GetInsertQueryFromOplog(opLog models.Oplog) []string {
 	var queries []string
 	opLogNameSpace := strings.Split(opLog.Namespace, ".")
 	schemaName := opLogNameSpace[0]
 	parentTableName := opLogNameSpace[1]
 
-	if !CreateSchemaQueryExists[schemaName] {
+	if !constants.CreateSchemaQueryExists[schemaName] {
 		createSchemaQuery := GetCreateSchemaQuery(schemaName)
 
 		queries = append(queries, createSchemaQuery)
-		CreateSchemaQueryExists[schemaName] = true
+		constants.CreateSchemaQueryExists[schemaName] = true
 	}
 
 	for key, value := range opLog.Object {
@@ -51,7 +71,7 @@ func GetInsertQueryFromOplog(opLog Oplog) []string {
 		foreignKeyValue := GetValueFromObject("_id", opLog.Object)
 		switch data := value.(type) {
 		case map[string]interface{}:
-			query := handleQueryCreation(tableName, data, &ForeignKeyRelation{
+			query := handleQueryCreation(tableName, data, &models.ForeignKeyRelation{
 				ColumnName: foreignKeyName,
 				Value:      foreignKeyValue,
 			})
@@ -62,7 +82,7 @@ func GetInsertQueryFromOplog(opLog Oplog) []string {
 		case []interface{}:
 			for _, item := range data {
 				temp := item.(map[string]interface{}) //type assertion
-				query := handleQueryCreation(tableName, temp, &ForeignKeyRelation{
+				query := handleQueryCreation(tableName, temp, &models.ForeignKeyRelation{
 					ColumnName: foreignKeyName,
 					Value:      foreignKeyValue,
 				})
@@ -75,7 +95,7 @@ func GetInsertQueryFromOplog(opLog Oplog) []string {
 			temp := []interface{}(data) //type conversion
 			for _, item := range temp {
 				item := item.(map[string]interface{})
-				query := handleQueryCreation(tableName, item, &ForeignKeyRelation{
+				query := handleQueryCreation(tableName, item, &models.ForeignKeyRelation{
 					ColumnName: foreignKeyName,
 					Value:      foreignKeyValue,
 				})
@@ -99,7 +119,7 @@ func GetValueFromObject(key string, object map[string]interface{}) interface{} {
 	return nil
 }
 
-func handleQueryCreation(tableName string, data map[string]interface{}, foreignKeyRelation *ForeignKeyRelation) []string {
+func handleQueryCreation(tableName string, data map[string]interface{}, foreignKeyRelation *models.ForeignKeyRelation) []string {
 	var queries []string
 
 	idColumnExists := slices.Contains(getKeys(data), "_id")
@@ -112,12 +132,12 @@ func handleQueryCreation(tableName string, data map[string]interface{}, foreignK
 	}
 	columnNames := getKeys(data)
 
-	if !CreateTableQueryExists[tableName] {
+	if !constants.CreateTableQueryExists[tableName] {
 		createTableQuery := GetCreateTableQuery(tableName, data)
 
 		queries = append(queries, createTableQuery)
-		CreateTableQueryExists[tableName] = true
-		TableColumnName[tableName] = columnNames
+		constants.CreateTableQueryExists[tableName] = true
+		constants.TableColumnName[tableName] = columnNames
 	}
 
 	alterQueries := GetCreateAlterQuery(tableName, data)
@@ -154,13 +174,13 @@ func GetInsertTableQuery(tableName string, data map[string]interface{}) string {
 }
 
 func GetCreateAlterQuery(tableName string, data map[string]interface{}) []string {
-	existingColumns := TableColumnName[tableName]
+	existingColumns := constants.TableColumnName[tableName]
 	var alterStatements []string
 
 	for columnName, value := range data {
 		if exist := slices.Contains(existingColumns, columnName); !exist {
 			dataType := getDataType(value)
-			TableColumnName[tableName] = append(TableColumnName[tableName], columnName)
+			constants.TableColumnName[tableName] = append(constants.TableColumnName[tableName], columnName)
 
 			alterStatements = append(alterStatements, fmt.Sprintf("ALTER TABLE %s ADD %s %s;\n\n", tableName, columnName, dataType))
 		}
@@ -185,7 +205,7 @@ func GetCreateTableQuery(tableName string, data map[string]interface{}) string {
 	placeHolder := strings.Join(placeHolders, ",")
 
 	for key, value := range data {
-		dataType := getDataType(value) //TODO: why ints are getting decoded as floats.
+		dataType := getDataType(value) //TODO: why ints are getting converted as floats.
 		columnAndType := fmt.Sprintf("%s %s", key, dataType)
 
 		if key == "_id" {
@@ -227,7 +247,7 @@ func getDataType(value interface{}) string {
 	return dataType
 }
 
-func GetUpdateQueryFromOplog(opLog Oplog) []string {
+func GetUpdateQueryFromOplog(opLog models.Oplog) []string {
 	objectMap := make(map[string]interface{})
 	value := reflect.ValueOf(opLog.Object)
 	dataToUpdate := make(map[string]interface{})
@@ -284,7 +304,7 @@ func GetUpdateQueryFromOplog(opLog Oplog) []string {
 	return []string{updateQuery}
 }
 
-func GetDeleteQueryFromOplog(opLog Oplog) []string {
+func GetDeleteQueryFromOplog(opLog models.Oplog) []string {
 	objectMap := make(map[string]interface{})
 	value := reflect.ValueOf(opLog.Object)
 

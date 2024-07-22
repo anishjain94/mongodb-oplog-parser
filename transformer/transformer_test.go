@@ -1,19 +1,20 @@
-package main
+package transformer
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"reflect"
 	"testing"
+
+	"github.com/anishjain94/mongo-oplog-to-sql/models"
 )
 
 var testOplogQuery = map[string]struct {
-	Oplog
+	models.Oplog
 	Want []string
 }{
 	"insertSingle": {
-		Oplog: Oplog{
+		Oplog: models.Oplog{
 			Operation: "i",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -26,7 +27,7 @@ var testOplogQuery = map[string]struct {
 		},
 	},
 	"insertSingleNewColumn": {
-		Oplog: Oplog{
+		Oplog: models.Oplog{
 			Operation: "i",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -40,7 +41,7 @@ var testOplogQuery = map[string]struct {
 		},
 	},
 	"updateQuery": {
-		Oplog: Oplog{
+		Oplog: models.Oplog{
 			Operation: "u",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -59,7 +60,7 @@ var testOplogQuery = map[string]struct {
 		Want: []string{"UPDATE test.student SET is_graduated = true, name = 'dummy_name' WHERE _id = '635b79e231d82a8ab1de863b'"},
 	},
 	"updateQuerySetNull": {
-		Oplog: Oplog{
+		Oplog: models.Oplog{
 			Operation: "u",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -78,7 +79,7 @@ var testOplogQuery = map[string]struct {
 		Want: []string{"UPDATE test.student SET name = NULL, roll_no = NULL WHERE _id = '635b79e231d82a8ab1de863b'"},
 	},
 	"deleteQuery": {
-		Oplog: Oplog{
+		Oplog: models.Oplog{
 			Operation: "d",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -88,7 +89,7 @@ var testOplogQuery = map[string]struct {
 		Want: []string{"DELETE FROM test.student WHERE _id = '635b79e231d82a8ab1de863b'"},
 	},
 	"nestedObject1": {
-		Oplog: Oplog{
+		Oplog: models.Oplog{
 			Operation: "i",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -115,7 +116,7 @@ var testOplogQuery = map[string]struct {
 		},
 	},
 	"nestedObject2": {
-		Oplog: Oplog{
+		Oplog: models.Oplog{
 			Operation: "i",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -173,7 +174,7 @@ func TestOpLogGeneric(t *testing.T) {
 		   "_id": "635b79e231d82a8ab1de863b"
 		}
 	 }`
-	var oplog Oplog
+	var oplog models.Oplog
 	err := json.Unmarshal([]byte(jsonStr), &oplog)
 	if err != nil {
 		log.Fatal(err.Error())
@@ -181,5 +182,5 @@ func TestOpLogGeneric(t *testing.T) {
 
 	query := GetSqlQueries(oplog)
 
-	fmt.Println(query)
+	log.Println(query)
 }

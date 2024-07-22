@@ -3,6 +3,12 @@ package main
 import (
 	"context"
 	"testing"
+
+	"github.com/anishjain94/mongo-oplog-to-sql/constants"
+	"github.com/anishjain94/mongo-oplog-to-sql/database/mongodb"
+	"github.com/anishjain94/mongo-oplog-to-sql/database/postgres"
+	"github.com/anishjain94/mongo-oplog-to-sql/models"
+	"github.com/anishjain94/mongo-oplog-to-sql/transformer"
 )
 
 func TestMain(t *testing.T) {
@@ -11,40 +17,50 @@ func TestMain(t *testing.T) {
 	inputFile := "example.json"
 	outputFile := "output.sql"
 
-	config := FlagConfig{
-		InputFilePath:  &inputFile,
-		OutputFilePath: &outputFile,
+	config := models.FlagConfig{
+		InputFilePath:  inputFile,
+		OutputFilePath: outputFile,
 	}
 
-	decodedData, err := readFile(config)
+	decodedData, err := readFile(config.InputFilePath)
 	if err != nil {
 		t.Error(err)
 	}
 
 	for _, logs := range decodedData {
-		queriesToAppend := GetSqlQueries(logs)
+		queriesToAppend := transformer.GetSqlQueries(logs)
 		if err != nil {
 			t.Error(err)
 		}
 		queries = append(queries, queriesToAppend...)
 	}
 
-	displayOutput(config, queries)
+	createOutputFile(config, queries)
 }
 
 func TestMongo(t *testing.T) {
 	ctx := context.Background()
-	InitializeMongoDb()
-	InitializePostgres()
+	mongodb.InitializeMongoDb(&ctx)
+	postgres.InitializePostgres()
 
 	var queries []string
-	opLogs := GetOpLogs()
+	opLogs, _ := mongodb.GetOpLogs(&ctx)
 
 	for _, opLog := range opLogs {
-		queriesToAppend := GetSqlQueries(opLog)
+		queriesToAppend := transformer.GetSqlQueries(opLog)
 		queries = append(queries, queriesToAppend...)
 	}
 
-	executeQueries(&ctx, queries)
+	postgres.ExecuteQueries(&ctx, queries...)
+}
 
+func TestRunMainLogic(t *testing.T) {
+	ctx := context.Background()
+	mongodb.InitializeMongoDb(&ctx)
+
+	RunMainLogic(&ctx, &models.FlagConfig{
+		InputType:      constants.InputTypeMongoDB,
+		OutputType:     constants.OutputTypeSQL,
+		OutputFilePath: "temp.sql",
+	})
 }
