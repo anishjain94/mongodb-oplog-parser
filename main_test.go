@@ -22,13 +22,13 @@ func TestMain(t *testing.T) {
 		OutputFilePath: outputFile,
 	}
 
-	decodedData, err := readFile(config.InputFilePath)
+	err := readFileContent(config.InputFilePath, models.OpLogChannel)
 	if err != nil {
 		t.Error(err)
 	}
 
-	for _, logs := range decodedData {
-		queriesToAppend := transformer.GetSqlQueries(logs)
+	for opLog := range models.OpLogChannel {
+		queriesToAppend := transformer.GetSqlQueries(opLog)
 		if err != nil {
 			t.Error(err)
 		}
@@ -44,9 +44,9 @@ func TestMongo(t *testing.T) {
 	postgres.InitializePostgres()
 
 	var queries []string
-	opLogs, _ := mongodb.GetOpLogs(&ctx)
+	mongodb.WatchCollection(&ctx, models.OpLogChannel)
 
-	for _, opLog := range opLogs {
+	for opLog := range models.OpLogChannel {
 		queriesToAppend := transformer.GetSqlQueries(opLog)
 		queries = append(queries, queriesToAppend...)
 	}
@@ -59,20 +59,10 @@ func TestRunMainLogic(t *testing.T) {
 	mongodb.InitializeMongoDb(&ctx)
 
 	RunMainLogic(&ctx, &models.FlagConfig{
-		InputType:      constants.InputTypeMongoDB,
+		InputType:     constants.InputTypeJSON,
+		InputFilePath: "example-input.json",
+
 		OutputType:     constants.OutputTypeSQL,
 		OutputFilePath: "temp.sql",
 	})
 }
-
-// TODO: diff does not exists, try typecasting non existing key to map[string]interface{}. check what happens, does it throw unhandled error orit says ok as false.
-// func TestNullTypeCast(t *testing.T) {
-
-// 	if diff, ok := objectMap["diff"].(map[string]interface{}); ok {
-// 		if u, ok := diff["u"].(map[string]interface{}); ok {
-// 			dataToUpdate = u
-// 		} else if d, ok := diff["d"].(map[string]interface{}); ok {
-// 			dataToSetNull = d
-// 		}
-// 	}
-// }

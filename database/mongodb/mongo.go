@@ -30,55 +30,9 @@ func InitializeMongoDb(ctx *context.Context) {
 		log.Fatal(err)
 	}
 
-	defer MongoClient.Disconnect(*ctx)
 	err = MongoClient.Ping(*ctx, nil)
 	if err != nil {
 		log.Fatal(err)
-	}
-}
-
-// TODO: handle event triggers to make it continously read
-func GetOpLogs(ctx *context.Context) ([]models.Oplog, error) {
-	collection := MongoClient.Database(os.Getenv("MONGODB_DBNAME")).Collection("oplog.rs")
-	cursor, err := collection.Find(*ctx, bson.D{})
-	if err != nil {
-		return nil, err
-	}
-
-	var result []models.Oplog
-	if err = cursor.All(*ctx, &result); err != nil {
-		return nil, err
-	}
-
-	for {
-		select {
-		case <-(*ctx).Done():
-			return nil, nil // cancelled called.
-		default:
-			if cursor.TryNext(context.TODO()) {
-				var data bson.M
-				if err := cursor.Decode(&data); err != nil {
-					panic(err)
-				}
-
-				jsonData, err := json.Marshal(data)
-				if err != nil {
-					panic(err)
-				}
-
-				var entry models.Oplog
-				err = json.Unmarshal(jsonData, &entry)
-				if err != nil {
-					panic(err)
-				}
-				result = append(result, entry)
-			}
-
-			if err := cursor.Err(); err != nil {
-				return nil, err
-			}
-			return result, nil
-		}
 	}
 }
 
@@ -93,7 +47,6 @@ func WatchCollection(ctx *context.Context, opLog chan<- models.Oplog) error {
 	defer stream.Close(*ctx)
 
 	for stream.Next(*ctx) {
-
 		var data bson.M
 		if err := stream.Decode(&data); err != nil {
 			panic(err)
@@ -111,7 +64,6 @@ func WatchCollection(ctx *context.Context, opLog chan<- models.Oplog) error {
 		}
 
 		opLog <- entry
-
 	}
 	return nil
 }

@@ -21,4 +21,4 @@ type FlagConfig struct {
 	OutputFilePath string
 }
 
-var OpLog = make(chan Oplog)
+var OpLogChannel = make(chan Oplog, 100) //TODO: check weather to use buffered or unbuffered channel.

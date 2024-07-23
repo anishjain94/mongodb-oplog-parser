@@ -35,6 +35,7 @@ func init() {
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	tiker := time.NewTicker(30 * time.Second)
 
 	var wg sync.WaitGroup
 
@@ -44,20 +45,17 @@ func main() {
 
 	done := make(chan struct{}) //channel to notify when all goroutines finishes.
 
-	// TODO: check if there is a module for file/mongodb watching.
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				return //exit goroutine when ctx is cancelled
 
-			default:
+			case <-tiker.C:
 				wg.Add(1)
 				go func(ctx *context.Context, flagConfig *models.FlagConfig, wg *sync.WaitGroup) {
 					defer wg.Done()
-					if err := RunMainLogic(ctx, flagConfig); err != nil {
-						log.Fatal(err.Error())
-					}
+					RunMainLogic(ctx, flagConfig)
 				}(&ctx, flagConfig, &wg)
 			}
 		}
@@ -79,51 +77,44 @@ func main() {
 	}
 }
 
-func RunMainLogic(ctx *context.Context, flagConfig *models.FlagConfig) error {
-	var decodedData []models.Oplog
-	var err error
+func RunMainLogic(ctx *context.Context, flagConfig *models.FlagConfig) {
+	// Get input from jsonfile/mongodb and stream that to a channel
+	go func() {
+		switch flagConfig.InputType {
+		case constants.InputTypeJSON:
+			err := readFileContent(flagConfig.InputFilePath, models.OpLogChannel)
+			if err != nil {
+				log.Fatal(err)
+			}
 
-	// Get input from json file or mongodb
-	switch flagConfig.InputType {
-	case constants.InputTypeJSON:
-		decodedData, err = readFile(flagConfig.InputFilePath)
-		if err != nil {
-			return err
+		case constants.InputTypeMongoDB:
+			mongodb.WatchCollection(ctx, models.OpLogChannel)
 		}
+	}()
 
-	case constants.InputTypeMongoDB:
-		decodedData, err = mongodb.GetOpLogs(ctx)
-		if err != nil {
-			return err
-		}
+	for {
+		select {
+		case <-(*ctx).Done():
+			log.Println("cancel called")
 
-		// mongodb.WatchCollection(ctx, nil)
-	}
+		case opLog := <-models.OpLogChannel:
+			sqlQueries := transformer.GetSqlQueries(opLog)
 
-	var queries []string
-	for _, logs := range decodedData {
-		sqlQueries := transformer.GetSqlQueries(logs)
-		if err != nil {
-			log.Fatal(err)
-		}
-		queries = append(queries, sqlQueries...)
-	}
+			switch flagConfig.OutputType {
+			case constants.OutputTypeSQL:
+				err := createOutputFile(*flagConfig, sqlQueries)
+				if err != nil {
+					log.Fatalln(err)
+				}
 
-	// Execute queries or create sql file
-	switch flagConfig.OutputType {
-	case constants.OutputTypeSQL:
-		err = createOutputFile(*flagConfig, queries)
-		if err != nil {
-			return err
-		}
-
-	case constants.OutputTypeDB:
-		err = postgres.ExecuteQueries(ctx, queries...)
-		if err != nil {
-			return err
+			case constants.OutputTypeDB:
+				err := postgres.ExecuteQueries(ctx, sqlQueries...)
+				if err != nil {
+					log.Fatalln(err)
+				}
+			}
 		}
 	}
-	return nil
 }
 
 func parseFlags() *models.FlagConfig {
@@ -179,7 +170,7 @@ func parseFlags() *models.FlagConfig {
 }
 
 func createOutputFile(flagConfig models.FlagConfig, queries []string) error {
-	file, err := os.OpenFile(flagConfig.OutputFilePath, os.O_WRONLY|os.O_CREATE, 0666)
+	file, err := os.OpenFile(flagConfig.OutputFilePath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
 		return err
 	}
@@ -202,41 +193,39 @@ func createOutputFile(flagConfig models.FlagConfig, queries []string) error {
 	return nil
 }
 
-func readFile(filePath string) ([]models.Oplog, error) {
+func readFileContent(filePath string, channel chan<- models.Oplog) error {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer file.Close()
 
 	_, err = file.Seek(constants.FileLastReadPosition, io.SeekStart)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	decoder := json.NewDecoder(file)
 	if constants.FileLastReadPosition == 0 {
 		_, err = decoder.Token()
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
-
-	var decodedDataList []models.Oplog
 
 	for decoder.More() {
 		var decodedData models.Oplog
 		err = decoder.Decode(&decodedData)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		decodedDataList = append(decodedDataList, decodedData)
+		constants.FileLastReadPosition, err = file.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return err
+		}
+
+		channel <- decodedData
 	}
 
-	constants.FileLastReadPosition, err = file.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return nil, err
-	}
-
-	return decodedDataList, nil
+	return nil
 }

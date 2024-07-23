@@ -28,7 +28,6 @@ func GetSqlQueries(oplog models.Oplog) []string {
 	return query
 }
 
-// TODO: write a unit test for this function.
 // TODO: explore use of generics.
 func populateValuesInQuery(query string, values []interface{}) string {
 	for _, v := range values {

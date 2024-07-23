@@ -184,3 +184,66 @@ func TestOpLogGeneric(t *testing.T) {
 
 	log.Println(query)
 }
+
+func TestPopulateValuesInQuery(t *testing.T) {
+	tests := map[string]struct {
+		query    string
+		values   []interface{}
+		expected string
+	}{
+		"String replacement": {
+			query:    "SELECT * FROM users WHERE name = ?",
+			values:   []interface{}{"John"},
+			expected: "SELECT * FROM users WHERE name = 'John'",
+		},
+		"Integer replacement": {
+			query:    "SELECT * FROM users WHERE age > ?",
+			values:   []interface{}{30},
+			expected: "SELECT * FROM users WHERE age > 30",
+		},
+		"Float replacement": {
+			query:    "SELECT * FROM products WHERE price < ?",
+			values:   []interface{}{19.99},
+			expected: "SELECT * FROM products WHERE price < 19.990000",
+		},
+		"Boolean replacement": {
+			query:    "SELECT * FROM users WHERE is_active = ?",
+			values:   []interface{}{true},
+			expected: "SELECT * FROM users WHERE is_active = true",
+		},
+		"Null replacement": {
+			query:    "SELECT * FROM users WHERE last_login = ?",
+			values:   []interface{}{nil},
+			expected: "SELECT * FROM users WHERE last_login = NULL",
+		},
+		"Multiple replacements": {
+			query:    "INSERT INTO users (name, age, balance) VALUES (?, ?, ?)",
+			values:   []interface{}{"Alice", 25, 1000.50},
+			expected: "INSERT INTO users (name, age, balance) VALUES ('Alice', 25, 1000.500000)",
+		},
+		"String with single quotes": {
+			query:    "SELECT * FROM users WHERE name = ?",
+			values:   []interface{}{"O'Brien"},
+			expected: "SELECT * FROM users WHERE name = 'O''Brien'",
+		},
+		"Different integer types": {
+			query:    "SELECT * FROM data WHERE int8 = ? AND int16 = ? AND int32 = ? AND int64 = ?",
+			values:   []interface{}{int8(8), int16(16), int32(32), int64(64)},
+			expected: "SELECT * FROM data WHERE int8 = 8 AND int16 = 16 AND int32 = 32 AND int64 = 64",
+		},
+		"Different unsigned integer types": {
+			query:    "SELECT * FROM data WHERE uint8 = ? AND uint16 = ? AND uint32 = ? AND uint64 = ?",
+			values:   []interface{}{uint8(8), uint16(16), uint32(32), uint64(64)},
+			expected: "SELECT * FROM data WHERE uint8 = 8 AND uint16 = 16 AND uint32 = 32 AND uint64 = 64",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := populateValuesInQuery(tt.query, tt.values)
+			if result != tt.expected {
+				t.Errorf("%s: populateValuesInQuery() = %v, want %v", name, result, tt.expected)
+			}
+		})
+	}
+}
