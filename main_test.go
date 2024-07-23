@@ -14,8 +14,8 @@ import (
 func TestMain(t *testing.T) {
 	var queries []string
 
-	inputFile := "example.json"
-	outputFile := "output.sql"
+	inputFile := "example-input.json"
+	outputFile := "example-output.sql"
 
 	config := models.FlagConfig{
 		InputFilePath:  inputFile,
@@ -64,3 +64,15 @@ func TestRunMainLogic(t *testing.T) {
 		OutputFilePath: "temp.sql",
 	})
 }
+
+// TODO: diff does not exists, try typecasting non existing key to map[string]interface{}. check what happens, does it throw unhandled error orit says ok as false.
+// func TestNullTypeCast(t *testing.T) {
+
+// 	if diff, ok := objectMap["diff"].(map[string]interface{}); ok {
+// 		if u, ok := diff["u"].(map[string]interface{}); ok {
+// 			dataToUpdate = u
+// 		} else if d, ok := diff["d"].(map[string]interface{}); ok {
+// 			dataToSetNull = d
+// 		}
+// 	}
+// }

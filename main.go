@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -39,10 +40,11 @@ func main() {
 
 	flagConfig := parseFlags()
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	done := make(chan struct{}) //channel to notify when all goroutines finishes.
 
+	// TODO: check if there is a module for file/mongodb watching.
 	go func() {
 		for {
 			select {
@@ -94,6 +96,8 @@ func RunMainLogic(ctx *context.Context, flagConfig *models.FlagConfig) error {
 		if err != nil {
 			return err
 		}
+
+		// mongodb.WatchCollection(ctx, nil)
 	}
 
 	var queries []string
@@ -204,11 +208,18 @@ func readFile(filePath string) ([]models.Oplog, error) {
 		return nil, err
 	}
 	defer file.Close()
-	decoder := json.NewDecoder(file)
 
-	_, err = decoder.Token()
+	_, err = file.Seek(constants.FileLastReadPosition, io.SeekStart)
 	if err != nil {
 		return nil, err
+	}
+
+	decoder := json.NewDecoder(file)
+	if constants.FileLastReadPosition == 0 {
+		_, err = decoder.Token()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var decodedDataList []models.Oplog
@@ -221,5 +232,11 @@ func readFile(filePath string) ([]models.Oplog, error) {
 		}
 		decodedDataList = append(decodedDataList, decodedData)
 	}
+
+	constants.FileLastReadPosition, err = file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, err
+	}
+
 	return decodedDataList, nil
 }

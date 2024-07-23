@@ -2,8 +2,6 @@ package transformer
 
 import (
 	"fmt"
-	"log"
-	"reflect"
 	"slices"
 	"strings"
 
@@ -21,17 +19,17 @@ func GetSqlQueries(oplog models.Oplog) []string {
 		query = GetInsertQueryFromOplog(oplog)
 
 	case constants.EnumOperationUpdate:
-		query = GetUpdateQueryFromOplog(oplog)
+		query = append(query, GetUpdateQueryFromOplog(oplog))
 
 	case constants.EnumOperationDelete:
-		query = GetDeleteQueryFromOplog(oplog)
-
+		query = append(query, GetDeleteQueryFromOplog(oplog))
 	}
 
 	return query
 }
 
 // TODO: write a unit test for this function.
+// TODO: explore use of generics.
 func populateValuesInQuery(query string, values []interface{}) string {
 	for _, v := range values {
 		replace := "?"
@@ -247,23 +245,12 @@ func getDataType(value interface{}) string {
 	return dataType
 }
 
-func GetUpdateQueryFromOplog(opLog models.Oplog) []string {
-	objectMap := make(map[string]interface{})
-	value := reflect.ValueOf(opLog.Object)
+func GetUpdateQueryFromOplog(opLog models.Oplog) string {
 	dataToUpdate := make(map[string]interface{})
 	dataToSetNull := make(map[string]interface{})
 
-	if value.Kind() != reflect.Map {
-		log.Panicf("Object field is not a struct")
-	}
-
-	for key, value := range opLog.Object {
-		objectMap[key] = value
-	}
-
 	whereClause := opLog.Object2
-
-	if diff, ok := objectMap["diff"].(map[string]interface{}); ok {
+	if diff, ok := opLog.Object["diff"].(map[string]interface{}); ok {
 		if u, ok := diff["u"].(map[string]interface{}); ok {
 			dataToUpdate = u
 		} else if d, ok := diff["d"].(map[string]interface{}); ok {
@@ -284,7 +271,7 @@ func GetUpdateQueryFromOplog(opLog models.Oplog) []string {
 	// for setting key as null
 	for key := range dataToSetNull {
 		setClause = append(setClause, fmt.Sprintf("%s = ?", key))
-		values = append(values, nil)
+		values = append(values, nil) //TODO: change to zero value for that datatype. check if can be done.
 	}
 
 	// for where clause
@@ -301,36 +288,25 @@ func GetUpdateQueryFromOplog(opLog models.Oplog) []string {
 
 	updateQuery = populateValuesInQuery(updateQuery, values)
 
-	return []string{updateQuery}
+	return updateQuery
 }
 
-func GetDeleteQueryFromOplog(opLog models.Oplog) []string {
-	objectMap := make(map[string]interface{})
-	value := reflect.ValueOf(opLog.Object)
+func GetDeleteQueryFromOplog(opLog models.Oplog) string {
+	where := make([]string, 0, len(opLog.Object))
+	values := make([]interface{}, 0, len(opLog.Object))
 
-	if value.Kind() != reflect.Map {
-		log.Panicf("Object field is not a struct")
-	}
-
+	// where clause
 	for key, value := range opLog.Object {
-		objectMap[key] = value
-	}
-
-	where := make([]string, 0, len(objectMap))
-	values := make([]interface{}, 0, len(objectMap))
-
-	// for where clause
-	for key, value := range objectMap {
 		where = append(where, fmt.Sprintf("%s = ?", key))
 		values = append(values, value)
 	}
 
-	updateQuery := fmt.Sprintf("DELETE FROM %s WHERE %s;\n\n",
+	deleteQuery := fmt.Sprintf("DELETE FROM %s WHERE %s;\n\n",
 		opLog.Namespace,
 		strings.Join(where, " and "),
 	)
 
-	updateQuery = populateValuesInQuery(updateQuery, values)
+	deleteQuery = populateValuesInQuery(deleteQuery, values)
 
-	return []string{updateQuery}
+	return deleteQuery
 }
