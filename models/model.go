@@ -21,4 +21,5 @@ type FlagConfig struct {
 	OutputFilePath string
 }
 
+// TODO: not a good pratice to keep chan as global
 var OpLogChannel = make(chan Oplog, 100) //TODO: check weather to use buffered or unbuffered channel.

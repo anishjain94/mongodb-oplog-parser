@@ -40,7 +40,7 @@ func TestMain(t *testing.T) {
 
 func TestMongo(t *testing.T) {
 	ctx := context.Background()
-	mongodb.InitializeMongoDb(&ctx)
+	mongodb.InitializeMongoDb()
 	postgres.InitializePostgres()
 
 	var queries []string
@@ -56,7 +56,7 @@ func TestMongo(t *testing.T) {
 
 func TestRunMainLogic(t *testing.T) {
 	ctx := context.Background()
-	mongodb.InitializeMongoDb(&ctx)
+	mongodb.InitializeMongoDb()
 
 	RunMainLogic(&ctx, &models.FlagConfig{
 		InputType:     constants.InputTypeJSON,

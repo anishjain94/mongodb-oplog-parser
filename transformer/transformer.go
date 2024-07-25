@@ -55,11 +55,13 @@ func GetInsertQueryFromOplog(opLog models.Oplog) []string {
 	schemaName := opLogNameSpace[0]
 	parentTableName := opLogNameSpace[1]
 
-	if !constants.CreateSchemaQueryExists[schemaName] {
+	globalVariables := constants.GetGlobalVariables()
+
+	if _, exists := globalVariables.CreateSchemaQuery.Get(schemaName); !exists {
 		createSchemaQuery := GetCreateSchemaQuery(schemaName)
 
 		queries = append(queries, createSchemaQuery)
-		constants.CreateSchemaQueryExists[schemaName] = true
+		globalVariables.CreateSchemaQuery.Set(schemaName, true)
 	}
 
 	for key, value := range opLog.Object {
@@ -118,6 +120,7 @@ func GetValueFromObject(key string, object map[string]interface{}) interface{} {
 
 func handleQueryCreation(tableName string, data map[string]interface{}, foreignKeyRelation *models.ForeignKeyRelation) []string {
 	var queries []string
+	globalVariables := constants.GetGlobalVariables()
 
 	idColumnExists := slices.Contains(getKeys(data), "_id")
 	// If id column does not exists that means that its a nested object. So we create _id and foreign key column
@@ -129,12 +132,12 @@ func handleQueryCreation(tableName string, data map[string]interface{}, foreignK
 	}
 	columnNames := getKeys(data)
 
-	if !constants.CreateTableQueryExists[tableName] {
+	if _, exists := globalVariables.CreateTableQuery.Get(tableName); !exists {
 		createTableQuery := GetCreateTableQuery(tableName, data)
 
 		queries = append(queries, createTableQuery)
-		constants.CreateTableQueryExists[tableName] = true
-		constants.TableColumnName[tableName] = columnNames
+		globalVariables.CreateTableQuery.Set(tableName, true)
+		globalVariables.TableColumnName.Set(tableName, columnNames)
 	}
 
 	alterQueries := GetCreateAlterQuery(tableName, data)
@@ -163,21 +166,24 @@ func GetInsertTableQuery(tableName string, data map[string]interface{}) string {
 		strings.Join(columns, ", "),
 		strings.Join(placeholders, ", "),
 	)
-	// insert into tablename(id, name, phone) values (?, ?, ?);
 	// TODO: can replace (?, ?, ?) with direct values instead of using placeholders.
-	// TODO: read about prepared statements in sql
 	insertQuery = populateValuesInQuery(insertQuery, values)
 	return insertQuery
 }
 
 func GetCreateAlterQuery(tableName string, data map[string]interface{}) []string {
-	existingColumns := constants.TableColumnName[tableName]
+	globalVariables := constants.GetGlobalVariables()
+
+	existingColumns, _ := globalVariables.TableColumnName.Get(tableName)
 	var alterStatements []string
 
 	for columnName, value := range data {
 		if exist := slices.Contains(existingColumns, columnName); !exist {
 			dataType := getDataType(value)
-			constants.TableColumnName[tableName] = append(constants.TableColumnName[tableName], columnName)
+
+			columns, _ := globalVariables.TableColumnName.Get(tableName)
+			columns = append(columns, columnName)
+			globalVariables.TableColumnName.Set(tableName, columns)
 
 			alterStatements = append(alterStatements, fmt.Sprintf("ALTER TABLE %s ADD %s %s;\n\n", tableName, columnName, dataType))
 		}

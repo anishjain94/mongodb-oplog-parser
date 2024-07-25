@@ -9,61 +9,72 @@ import (
 
 	"github.com/anishjain94/mongo-oplog-to-sql/models"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var MongoClient *mongo.Client
 
-func InitializeMongoDb(ctx *context.Context) {
-	var err error
-
-	url := fmt.Sprintf("mongodb://%s:%s@%s:%s/",
-		os.Getenv("MONGODB_ROOT"),
-		os.Getenv("MONGODB_PASSWORD"),
-		os.Getenv("MONGODB_HOST"),
-		os.Getenv("MONGODB_PORT"),
-	)
-
-	MongoClient, err = mongo.Connect(*ctx, options.Client().SetDirect(true).ApplyURI(url))
+func InitializeMongoDb() {
+	clientOptions := options.Client().ApplyURI(os.Getenv("MONGO_URL")).SetDirect(true)
+	client, err := mongo.Connect(context.Background(), clientOptions) //TODO: Rewrite init for mongo.
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	err = MongoClient.Ping(*ctx, nil)
-	if err != nil {
-		log.Fatal(err)
+	MongoClient = client
+}
+
+func userFilter() primitive.M {
+	filter := bson.M{
+		"op": bson.M{"$nin": []string{"n", "c"}},
+		"$and": []bson.M{
+			{"ns": bson.M{"$not": bson.M{"$regex": "^(admin|config)\\."}}},
+			{"ns": bson.M{"$not": bson.M{"$eq": ""}}},
+		},
 	}
+	return filter
 }
 
 func WatchCollection(ctx *context.Context, opLog chan<- models.Oplog) error {
 	collection := MongoClient.Database("local").Collection("oplog.rs")
 
-	stream, err := collection.Watch(*ctx, mongo.Pipeline{})
+	findOptions := options.Find().SetCursorType(options.TailableAwait)
+	cursor, err := collection.Find(*ctx, userFilter(), findOptions)
 	if err != nil {
 		return err
 	}
+	defer cursor.Close(*ctx)
 
-	defer stream.Close(*ctx)
+	for {
+		select {
+		case <-(*ctx).Done():
+			fmt.Println("context done, stopped watching collections")
+			return nil
+		default:
+			if cursor.TryNext(*ctx) {
+				var data bson.M
+				if err := cursor.Decode(&data); err != nil {
+					return err
+				}
 
-	for stream.Next(*ctx) {
-		var data bson.M
-		if err := stream.Decode(&data); err != nil {
-			panic(err)
+				jsonData, err := json.Marshal(data)
+				if err != nil {
+					return err
+				}
+
+				var entry models.Oplog
+				if err = json.Unmarshal(jsonData, &entry); err != nil {
+					return err
+				}
+
+				opLog <- entry
+			}
+
+			if err := cursor.Err(); err != nil {
+				panic(err)
+			}
 		}
-
-		jsonData, err := json.Marshal(data)
-		if err != nil {
-			return err
-		}
-
-		var entry models.Oplog
-		err = json.Unmarshal(jsonData, &entry)
-		if err != nil {
-			panic(err)
-		}
-
-		opLog <- entry
 	}
-	return nil
 }

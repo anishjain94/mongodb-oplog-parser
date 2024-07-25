@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -22,47 +23,48 @@ import (
 )
 
 func init() {
-	ctx := context.Background()
 	err := godotenv.Load("./.env")
 	if err != nil {
 		log.Fatal("unable to load .env file")
 	}
 
-	mongodb.InitializeMongoDb(&ctx)
+	mongodb.InitializeMongoDb()
 	postgres.InitializePostgres()
 }
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	tiker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 
 	var wg sync.WaitGroup
-
 	flagConfig := parseFlags()
+	done := make(chan struct{}) //channel to notify when all goroutines finishes.
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	done := make(chan struct{}) //channel to notify when all goroutines finishes.
 
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
+				fmt.Println("ctx cancelled from main func")
 				return //exit goroutine when ctx is cancelled
 
-			case <-tiker.C:
+			case <-ticker.C:
+				// TODO: overlap with multiple goroutines
 				wg.Add(1)
-				go func(ctx *context.Context, flagConfig *models.FlagConfig, wg *sync.WaitGroup) {
+				go func() {
 					defer wg.Done()
-					RunMainLogic(ctx, flagConfig)
-				}(&ctx, flagConfig, &wg)
+					RunMainLogic(&ctx, flagConfig) //TODO: rename
+				}()
 			}
 		}
 	}()
 
 	<-sigChan
 	log.Println("Shutdown signal received. Gracefully shutting down")
+	cancel()
 
 	go func() {
 		wg.Wait()
@@ -76,6 +78,13 @@ func main() {
 		log.Println("Shutdown timed out")
 	}
 }
+
+// TODO: Define variables where they are used and not at other places.
+// TODO: check if pointer ctx is used.
+
+// TODO: 2 approacehs
+// approach 1 -> close the reader when they read and hit end of file / end of stream.
+// approach 2 -> always keep the producder and the reader alive.
 
 func RunMainLogic(ctx *context.Context, flagConfig *models.FlagConfig) {
 	// Get input from jsonfile/mongodb and stream that to a channel
@@ -92,29 +101,30 @@ func RunMainLogic(ctx *context.Context, flagConfig *models.FlagConfig) {
 		}
 	}()
 
-	for {
-		select {
-		case <-(*ctx).Done():
-			log.Println("cancel called")
+	// for {
+	select {
+	case <-(*ctx).Done():
+		fmt.Println("cancel propogated to run main logic.")
+		break
 
-		case opLog := <-models.OpLogChannel:
-			sqlQueries := transformer.GetSqlQueries(opLog)
+	case opLog := <-models.OpLogChannel:
+		sqlQueries := transformer.GetSqlQueries(opLog)
 
-			switch flagConfig.OutputType {
-			case constants.OutputTypeSQL:
-				err := createOutputFile(*flagConfig, sqlQueries)
-				if err != nil {
-					log.Fatalln(err)
-				}
+		switch flagConfig.OutputType {
+		case constants.OutputTypeSQL:
+			err := createOutputFile(*flagConfig, sqlQueries)
+			if err != nil {
+				log.Fatalln(err)
+			}
 
-			case constants.OutputTypeDB:
-				err := postgres.ExecuteQueries(ctx, sqlQueries...)
-				if err != nil {
-					log.Fatalln(err)
-				}
+		case constants.OutputTypeDB:
+			err := postgres.ExecuteQueries(ctx, sqlQueries...)
+			if err != nil {
+				log.Fatalln(err)
 			}
 		}
 	}
+	// }
 }
 
 func parseFlags() *models.FlagConfig {
@@ -124,9 +134,9 @@ func parseFlags() *models.FlagConfig {
 	outputType := flag.String("output-type", string(constants.OutputTypeSQL), "Output type: 'sql' or 'db'")
 
 	// Input file path (for JSON input)
-	flag.StringVar(&config.InputFilePath, "i", "", "Input JSON file path (required for JSON input)")
+	flag.StringVar(&config.InputFilePath, "i", "example-input.json", "Input JSON file path (required for JSON input)")
 	// Output file path (for SQL file output)
-	flag.StringVar(&config.OutputFilePath, "o", "", "Output SQL file path (required for SQL file output)")
+	flag.StringVar(&config.OutputFilePath, "o", "example-output.sql", "Output SQL file path (required for SQL file output)")
 
 	flag.Parse()
 
