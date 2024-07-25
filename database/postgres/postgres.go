@@ -34,11 +34,11 @@ func InitializePostgres() {
 	gormDB = db
 }
 
-func GetDb(ctx *context.Context) *gorm.DB {
-	return gormDB.WithContext(*ctx)
+func GetDb(ctx context.Context) *gorm.DB {
+	return gormDB.WithContext(ctx)
 }
 
-func ExecuteQueries(ctx *context.Context, queries ...string) error {
+func ExecuteQueries(ctx context.Context, queries ...string) error {
 	db := GetDb(ctx)
 
 	db.Transaction(func(tx *gorm.DB) error {

@@ -37,23 +37,24 @@ func userFilter() primitive.M {
 	return filter
 }
 
-func WatchCollection(ctx *context.Context, opLog chan<- models.Oplog) error {
+func WatchCollection(ctx context.Context, opLog chan<- models.Oplog) error {
 	collection := MongoClient.Database("local").Collection("oplog.rs")
 
 	findOptions := options.Find().SetCursorType(options.TailableAwait)
-	cursor, err := collection.Find(*ctx, userFilter(), findOptions)
+	cursor, err := collection.Find(ctx, userFilter(), findOptions)
 	if err != nil {
 		return err
 	}
-	defer cursor.Close(*ctx)
+	defer cursor.Close(ctx)
 
 	for {
 		select {
-		case <-(*ctx).Done():
+		case <-ctx.Done():
 			fmt.Println("context done, stopped watching collections")
 			return nil
+
 		default:
-			if cursor.TryNext(*ctx) {
+			if cursor.TryNext(ctx) {
 				var data bson.M
 				if err := cursor.Decode(&data); err != nil {
 					return err

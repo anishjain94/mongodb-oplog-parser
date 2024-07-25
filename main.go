@@ -28,14 +28,19 @@ func init() {
 		log.Fatal("unable to load .env file")
 	}
 
+	constants.GetGlobalVariables()
 	mongodb.InitializeMongoDb()
 	postgres.InitializePostgres()
+
+	err = constants.RestoreCheckpoint()
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ticker := time.NewTicker(5 * time.Second)
 
 	var wg sync.WaitGroup
 	flagConfig := parseFlags()
@@ -48,22 +53,23 @@ func main() {
 		for {
 			select {
 			case <-ctx.Done():
-				fmt.Println("ctx cancelled from main func")
+				fmt.Println("ctx cancelled main()")
 				return //exit goroutine when ctx is cancelled
 
-			case <-ticker.C:
-				// TODO: overlap with multiple goroutines
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					RunMainLogic(&ctx, flagConfig) //TODO: rename
-				}()
+			default:
+				parseOplog(ctx, flagConfig)
 			}
 		}
 	}()
 
 	<-sigChan
 	log.Println("Shutdown signal received. Gracefully shutting down")
+
+	err := constants.StoreCheckpoint()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	cancel()
 
 	go func() {
@@ -79,35 +85,36 @@ func main() {
 	}
 }
 
-// TODO: Define variables where they are used and not at other places.
-// TODO: check if pointer ctx is used.
+func parseOplog(ctx context.Context, flagConfig *models.FlagConfig) {
+	var oplogChannel = make(chan models.Oplog)
 
-// TODO: 2 approacehs
-// approach 1 -> close the reader when they read and hit end of file / end of stream.
-// approach 2 -> always keep the producder and the reader alive.
-
-func RunMainLogic(ctx *context.Context, flagConfig *models.FlagConfig) {
-	// Get input from jsonfile/mongodb and stream that to a channel
 	go func() {
-		switch flagConfig.InputType {
-		case constants.InputTypeJSON:
-			err := readFileContent(flagConfig.InputFilePath, models.OpLogChannel)
-			if err != nil {
-				log.Fatal(err)
-			}
+		for {
+			select {
+			case <-ctx.Done():
+				fmt.Println("ctx cancelled parseOplog")
 
-		case constants.InputTypeMongoDB:
-			mongodb.WatchCollection(ctx, models.OpLogChannel)
+			default:
+				switch flagConfig.InputType {
+				case constants.InputTypeJSON:
+					err := readFileContent(flagConfig.InputFilePath, oplogChannel)
+					if err != nil {
+						log.Fatal(err)
+					}
+
+				case constants.InputTypeMongoDB:
+					mongodb.WatchCollection(ctx, oplogChannel)
+				}
+			}
 		}
 	}()
 
-	// for {
 	select {
-	case <-(*ctx).Done():
-		fmt.Println("cancel propogated to run main logic.")
+	case <-ctx.Done():
+		fmt.Println("ctx cancelled after queries have been read")
 		break
 
-	case opLog := <-models.OpLogChannel:
+	case opLog := <-oplogChannel:
 		sqlQueries := transformer.GetSqlQueries(opLog)
 
 		switch flagConfig.OutputType {
@@ -124,7 +131,6 @@ func RunMainLogic(ctx *context.Context, flagConfig *models.FlagConfig) {
 			}
 		}
 	}
-	// }
 }
 
 func parseFlags() *models.FlagConfig {
@@ -188,7 +194,6 @@ func createOutputFile(flagConfig models.FlagConfig, queries []string) error {
 
 	buffer := bufio.NewWriter(file)
 
-	// TODO: do chunk insertion into files and then flush it.
 	for _, query := range queries {
 		_, err := buffer.Write([]byte(query))
 		if err != nil {
