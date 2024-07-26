@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/anishjain94/mongo-oplog-to-sql/constants"
@@ -62,15 +63,27 @@ func TestRunMainLogic(t *testing.T) {
 	ctx := context.Background()
 	mongodb.InitializeMongoDb()
 
-	parseOplog(ctx, &models.FlagConfig{
+	flagConfig := &models.FlagConfig{
 		InputType:     constants.InputTypeJSON,
 		InputFilePath: "example-input.json",
 
 		OutputType:     constants.OutputTypeSQL,
 		OutputFilePath: "temp.sql",
-	})
+	}
+
+	oplogChannel := make(chan models.Oplog)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		readFromSource(ctx, flagConfig, oplogChannel)
+		defer wg.Done()
+	}()
+
+	// parseOplog(ctx, flagConfig, oplogChannel)
 }
 
+// TODO: correct this.
 func TestStoreCheckpoint(t *testing.T) {
 	columns := []string{"col1", "col2", "col3"}
 
@@ -79,12 +92,12 @@ func TestStoreCheckpoint(t *testing.T) {
 	globalConfig.CreateTableQuery.Set("createTable", true)
 	globalConfig.TableColumnName.Set("tablecolumns", columns)
 
-	err := constants.StoreCheckpoint()
+	err := SaveLastRead()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = constants.RestoreCheckpoint()
+	err = RestoreLastRead()
 	if err != nil {
 		t.Fatal(err)
 	}

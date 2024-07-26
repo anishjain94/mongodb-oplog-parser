@@ -7,9 +7,9 @@ import (
 	"log"
 	"os"
 
+	"github.com/anishjain94/mongo-oplog-to-sql/constants"
 	"github.com/anishjain94/mongo-oplog-to-sql/models"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -26,22 +26,32 @@ func InitializeMongoDb() {
 	MongoClient = client
 }
 
-func userFilter() primitive.M {
-	filter := bson.M{
-		"op": bson.M{"$nin": []string{"n", "c"}},
-		"$and": []bson.M{
-			{"ns": bson.M{"$not": bson.M{"$regex": "^(admin|config)\\."}}},
-			{"ns": bson.M{"$not": bson.M{"$eq": ""}}},
-		},
-	}
-	return filter
-}
-
 func WatchCollection(ctx context.Context, opLog chan<- models.Oplog) error {
 	collection := MongoClient.Database("local").Collection("oplog.rs")
 
+	filter := bson.M{}
+	lastReadPoistion := constants.LastReadPosition.GetMongo()
+	if lastReadPoistion.T != 0 {
+		filter = bson.M{
+			"op": bson.M{"$nin": []string{"n", "c"}},
+			"$and": []bson.M{
+				{"ns": bson.M{"$not": bson.M{"$regex": "^(admin|config)\\."}}},
+				{"ns": bson.M{"$not": bson.M{"$eq": ""}}},
+				{"ts": bson.M{"$gte": lastReadPoistion}},
+			},
+		}
+	} else {
+		filter = bson.M{
+			"op": bson.M{"$nin": []string{"n", "c"}},
+			"$and": []bson.M{
+				{"ns": bson.M{"$not": bson.M{"$regex": "^(admin|config)\\."}}},
+				{"ns": bson.M{"$not": bson.M{"$eq": ""}}},
+			},
+		}
+	}
+
 	findOptions := options.Find().SetCursorType(options.TailableAwait)
-	cursor, err := collection.Find(ctx, userFilter(), findOptions)
+	cursor, err := collection.Find(ctx, filter, findOptions)
 	if err != nil {
 		return err
 	}
@@ -70,11 +80,18 @@ func WatchCollection(ctx context.Context, opLog chan<- models.Oplog) error {
 					return err
 				}
 
-				opLog <- entry
+				select {
+				case opLog <- entry:
+					// Successfully sent the entry
+				case <-ctx.Done():
+					return fmt.Errorf("context cancelled while sending entry")
+				}
+
+				constants.LastReadPosition.SetMongo(entry.Timestamp)
 			}
 
 			if err := cursor.Err(); err != nil {
-				panic(err)
+				fmt.Println(err.Error()) //TODO: panic here, print or ignore?
 			}
 		}
 	}

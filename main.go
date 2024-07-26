@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/gob"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -28,11 +29,10 @@ func init() {
 		log.Fatal("unable to load .env file")
 	}
 
-	constants.GetGlobalVariables()
 	mongodb.InitializeMongoDb()
 	postgres.InitializePostgres()
 
-	err = constants.RestoreCheckpoint()
+	err = RestoreLastRead()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -49,85 +49,82 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				fmt.Println("ctx cancelled main()")
-				return //exit goroutine when ctx is cancelled
+	oplogChannel := make(chan models.Oplog)
 
-			default:
-				parseOplog(ctx, flagConfig)
+	wg.Add(2)
+	go func() {
+		readFromSource(ctx, flagConfig, oplogChannel)
+		defer wg.Done()
+	}()
+
+	defer wg.Done()
+	for {
+		select {
+		case <-sigChan:
+			log.Println("Shutdown signal received. Gracefully shutting down")
+
+			err := SaveLastRead()
+			if err != nil {
+				log.Panic(err)
 			}
-		}
-	}()
 
-	<-sigChan
-	log.Println("Shutdown signal received. Gracefully shutting down")
+			cancel()
 
-	err := constants.StoreCheckpoint()
-	if err != nil {
-		log.Fatal(err)
-	}
+			go func() {
+				wg.Wait()
+				fmt.Println("channels closed")
+				close(done)
+			}()
 
-	cancel()
-
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		log.Println("gracefully shutdown")
-	case <-time.After(5 * time.Second):
-		log.Println("Shutdown timed out")
-	}
-}
-
-func parseOplog(ctx context.Context, flagConfig *models.FlagConfig) {
-	var oplogChannel = make(chan models.Oplog)
-
-	go func() {
-		for {
 			select {
-			case <-ctx.Done():
-				fmt.Println("ctx cancelled parseOplog")
+			case <-done:
+				log.Println("gracefully shutdown")
+			case <-time.After(5 * time.Second):
+				log.Println("Shutdown timed out")
+			}
+			return
 
-			default:
-				switch flagConfig.InputType {
-				case constants.InputTypeJSON:
-					err := readFileContent(flagConfig.InputFilePath, oplogChannel)
-					if err != nil {
-						log.Fatal(err)
-					}
+		case opLog := <-oplogChannel:
+			fmt.Println("got", opLog.Timestamp)
+			time.Sleep(3 * time.Second)
+			sqlQueries := transformer.GetSqlQueries(opLog)
 
-				case constants.InputTypeMongoDB:
-					mongodb.WatchCollection(ctx, oplogChannel)
+			switch flagConfig.OutputType {
+			case constants.OutputTypeSQL:
+				err := createOutputFile(*flagConfig, sqlQueries)
+				if err != nil {
+					log.Fatalln(err)
+				}
+
+			case constants.OutputTypeDB:
+				err := postgres.ExecuteQueries(ctx, sqlQueries...)
+				if err != nil {
+					log.Fatalln(err)
 				}
 			}
 		}
-	}()
+	}
 
-	select {
-	case <-ctx.Done():
-		fmt.Println("ctx cancelled after queries have been read")
-		break
+}
 
-	case opLog := <-oplogChannel:
-		sqlQueries := transformer.GetSqlQueries(opLog)
+func readFromSource(ctx context.Context, flagConfig *models.FlagConfig, oplogChannel chan<- models.Oplog) {
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("ctx cancelled go routine parseOplog")
+			// propogated here
+			return
 
-		switch flagConfig.OutputType {
-		case constants.OutputTypeSQL:
-			err := createOutputFile(*flagConfig, sqlQueries)
-			if err != nil {
-				log.Fatalln(err)
-			}
+		default:
+			switch flagConfig.InputType {
+			case constants.InputTypeJSON:
+				err := readFileContent(flagConfig.InputFilePath, oplogChannel)
+				if err != nil {
+					log.Fatal(err)
+				}
 
-		case constants.OutputTypeDB:
-			err := postgres.ExecuteQueries(ctx, sqlQueries...)
-			if err != nil {
-				log.Fatalln(err)
+			case constants.InputTypeMongoDB:
+				mongodb.WatchCollection(ctx, oplogChannel)
 			}
 		}
 	}
@@ -215,13 +212,14 @@ func readFileContent(filePath string, channel chan<- models.Oplog) error {
 	}
 	defer file.Close()
 
-	_, err = file.Seek(constants.FileLastReadPosition, io.SeekStart)
+	lastReadPoistion := constants.LastReadPosition.Get()
+	_, err = file.Seek(lastReadPoistion, io.SeekStart)
 	if err != nil {
 		return err
 	}
 
 	decoder := json.NewDecoder(file)
-	if constants.FileLastReadPosition == 0 {
+	if lastReadPoistion == 0 {
 		_, err = decoder.Token()
 		if err != nil {
 			return err
@@ -234,12 +232,56 @@ func readFileContent(filePath string, channel chan<- models.Oplog) error {
 		if err != nil {
 			return err
 		}
-		constants.FileLastReadPosition, err = file.Seek(0, io.SeekCurrent)
+
+		readPosition, err := file.Seek(0, io.SeekCurrent)
 		if err != nil {
 			return err
 		}
+		constants.LastReadPosition.Set(readPosition)
 
 		channel <- decodedData
+	}
+
+	return nil
+}
+
+func SaveLastRead() error {
+	gobFile, err := os.OpenFile("checkpoint.gob", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		return err
+	}
+
+	// lastRead := constants.LastReadPosition.Get()
+	err = gob.NewEncoder(gobFile).Encode(&constants.LastReadPosition)
+	if err != nil {
+		return err
+	}
+
+	err = gobFile.Close()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func RestoreLastRead() error {
+	gobFile, err := os.OpenFile("checkpoint.gob", os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		return err
+	}
+	defer gobFile.Close()
+
+	fileInfo, err := gobFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	if fileInfo.Size() != 0 {
+		err = gob.NewDecoder(gobFile).Decode(&constants.LastReadPosition)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
