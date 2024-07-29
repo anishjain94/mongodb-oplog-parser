@@ -2,8 +2,7 @@ package main
 
 import (
 	"context"
-	"reflect"
-	"sync"
+	"os"
 	"testing"
 
 	"github.com/anishjain94/mongo-oplog-to-sql/constants"
@@ -11,6 +10,7 @@ import (
 	"github.com/anishjain94/mongo-oplog-to-sql/database/postgres"
 	"github.com/anishjain94/mongo-oplog-to-sql/models"
 	"github.com/anishjain94/mongo-oplog-to-sql/transformer"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func TestMain(t *testing.T) {
@@ -25,20 +25,25 @@ func TestMain(t *testing.T) {
 	}
 	var oplogChannel = make(chan models.Oplog)
 
-	err := readFileContent(config.InputFilePath, oplogChannel)
+	go func() {
+		err := readFileContent(config.InputFilePath, oplogChannel)
+		if err != nil {
+			t.Error(err)
+		}
+		close(oplogChannel)
+	}()
+
+	for opLog := range oplogChannel {
+		queriesToAppend := transformer.GetSqlQueries(opLog)
+		queries = append(queries, queriesToAppend...)
+	}
+	createOutputFile(config, queries)
+
+	_, err := os.ReadFile(config.OutputFilePath)
 	if err != nil {
 		t.Error(err)
 	}
 
-	for opLog := range oplogChannel {
-		queriesToAppend := transformer.GetSqlQueries(opLog)
-		if err != nil {
-			t.Error(err)
-		}
-		queries = append(queries, queriesToAppend...)
-	}
-
-	createOutputFile(config, queries)
 }
 
 func TestMongo(t *testing.T) {
@@ -49,7 +54,9 @@ func TestMongo(t *testing.T) {
 	var oplogChannel = make(chan models.Oplog)
 
 	var queries []string
-	mongodb.WatchCollection(ctx, oplogChannel)
+	go func() {
+		mongodb.WatchCollection(ctx, oplogChannel)
+	}()
 
 	for opLog := range oplogChannel {
 		queriesToAppend := transformer.GetSqlQueries(opLog)
@@ -57,40 +64,22 @@ func TestMongo(t *testing.T) {
 	}
 
 	postgres.ExecuteQueries(ctx, queries...)
-}
 
-func TestRunMainLogic(t *testing.T) {
-	ctx := context.Background()
-	mongodb.InitializeMongoDb()
-
-	flagConfig := &models.FlagConfig{
-		InputType:     constants.InputTypeJSON,
-		InputFilePath: "example-input.json",
-
-		OutputType:     constants.OutputTypeSQL,
-		OutputFilePath: "temp.sql",
+	if len(queries) == 0 {
+		t.Errorf("queries not generated")
 	}
-
-	oplogChannel := make(chan models.Oplog)
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		readFromSource(ctx, flagConfig, oplogChannel)
-		defer wg.Done()
-	}()
-
-	// parseOplog(ctx, flagConfig, oplogChannel)
 }
 
-// TODO: correct this.
 func TestStoreCheckpoint(t *testing.T) {
-	columns := []string{"col1", "col2", "col3"}
+	var wantFileCheckpoint int64 = 100
+	var wantMongoCheckpoint uint32 = 150
 
-	globalConfig := constants.GetGlobalVariables()
-	globalConfig.CreateSchemaQuery.Set("createSchema", true)
-	globalConfig.CreateTableQuery.Set("createTable", true)
-	globalConfig.TableColumnName.Set("tablecolumns", columns)
+	constants.LastReadCheckpoint = constants.LastReadCheckpointConfig{
+		FileLastReadPosition: wantFileCheckpoint,
+		MongoLastReadPosition: primitive.Timestamp{
+			T: wantMongoCheckpoint,
+		},
+	}
 
 	err := SaveLastRead()
 	if err != nil {
@@ -102,17 +91,15 @@ func TestStoreCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restoredConfig := constants.GetGlobalVariables()
+	gotFileCheckpoint := constants.LastReadCheckpoint.GetFileCheckpoint()
 
-	if val, _ := restoredConfig.CreateSchemaQuery.Get("createSchema"); !val {
-		t.Errorf("createSchema in restoredconfig not found")
+	if gotFileCheckpoint != wantFileCheckpoint {
+		t.Errorf("Got %v\nWant %v", gotFileCheckpoint, wantFileCheckpoint)
 	}
 
-	if val, _ := restoredConfig.CreateTableQuery.Get("createTable"); !val {
-		t.Errorf("createSchema in restoredconfig not found")
-	}
+	gotMongoCheckpoint := constants.LastReadCheckpoint.GetMongoCheckpoint()
 
-	if val, exists := restoredConfig.TableColumnName.Get("tablecolumns"); !exists && !reflect.DeepEqual(columns, val) {
-		t.Errorf("createSchema in restoredconfig not found")
+	if gotMongoCheckpoint.T != wantMongoCheckpoint {
+		t.Errorf("Got %v\nWant %v", gotFileCheckpoint, wantFileCheckpoint)
 	}
 }

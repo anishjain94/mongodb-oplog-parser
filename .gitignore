@@ -42,3 +42,8 @@ bin*
 *vendor*
 dist/
 *dist*
+
+# checkpoint file
+*.gob
+checkpoint.gob
+

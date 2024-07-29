@@ -29,9 +29,6 @@ func init() {
 		log.Fatal("unable to load .env file")
 	}
 
-	mongodb.InitializeMongoDb()
-	postgres.InitializePostgres()
-
 	err = RestoreLastRead()
 	if err != nil {
 		log.Fatal(err)
@@ -63,8 +60,7 @@ func main() {
 		case <-sigChan:
 			log.Println("Shutdown signal received. Gracefully shutting down")
 
-			err := SaveLastRead()
-			if err != nil {
+			if err := SaveLastRead(); err != nil {
 				log.Panic(err)
 			}
 
@@ -72,8 +68,8 @@ func main() {
 
 			go func() {
 				wg.Wait()
-				fmt.Println("channels closed")
 				close(done)
+				fmt.Println("channels closed")
 			}()
 
 			select {
@@ -85,45 +81,41 @@ func main() {
 			return
 
 		case opLog := <-oplogChannel:
-			fmt.Println("got", opLog.Timestamp)
 			time.Sleep(3 * time.Second)
 			sqlQueries := transformer.GetSqlQueries(opLog)
 
 			switch flagConfig.OutputType {
 			case constants.OutputTypeSQL:
-				err := createOutputFile(*flagConfig, sqlQueries)
-				if err != nil {
+				if err := createOutputFile(*flagConfig, sqlQueries); err != nil {
 					log.Fatalln(err)
 				}
 
 			case constants.OutputTypeDB:
-				err := postgres.ExecuteQueries(ctx, sqlQueries...)
-				if err != nil {
+				postgres.InitializePostgres()
+				if err := postgres.ExecuteQueries(ctx, sqlQueries...); err != nil {
 					log.Fatalln(err)
 				}
 			}
 		}
 	}
-
 }
 
 func readFromSource(ctx context.Context, flagConfig *models.FlagConfig, oplogChannel chan<- models.Oplog) {
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("ctx cancelled go routine parseOplog")
-			// propogated here
 			return
 
 		default:
 			switch flagConfig.InputType {
 			case constants.InputTypeJSON:
-				err := readFileContent(flagConfig.InputFilePath, oplogChannel)
-				if err != nil {
+				if err := readFileContent(flagConfig.InputFilePath, oplogChannel); err != nil {
 					log.Fatal(err)
 				}
-
 			case constants.InputTypeMongoDB:
+				if err := mongodb.InitializeMongoDb(); err != nil {
+					log.Fatal(err)
+				}
 				mongodb.WatchCollection(ctx, oplogChannel)
 			}
 		}
@@ -212,7 +204,7 @@ func readFileContent(filePath string, channel chan<- models.Oplog) error {
 	}
 	defer file.Close()
 
-	lastReadPoistion := constants.LastReadPosition.Get()
+	lastReadPoistion := constants.LastReadCheckpoint.GetFileCheckpoint()
 	_, err = file.Seek(lastReadPoistion, io.SeekStart)
 	if err != nil {
 		return err
@@ -237,7 +229,7 @@ func readFileContent(filePath string, channel chan<- models.Oplog) error {
 		if err != nil {
 			return err
 		}
-		constants.LastReadPosition.Set(readPosition)
+		constants.LastReadCheckpoint.SetFileCheckpoint(readPosition)
 
 		channel <- decodedData
 	}
@@ -251,8 +243,12 @@ func SaveLastRead() error {
 		return err
 	}
 
-	// lastRead := constants.LastReadPosition.Get()
-	err = gob.NewEncoder(gobFile).Encode(&constants.LastReadPosition)
+	var lastReadCheckpoint constants.LastReadCheckpointConfig = constants.LastReadCheckpointConfig{
+		FileLastReadPosition:  constants.LastReadCheckpoint.GetFileCheckpoint(),
+		MongoLastReadPosition: constants.LastReadCheckpoint.GetMongoCheckpoint(),
+	}
+
+	err = gob.NewEncoder(gobFile).Encode(&lastReadCheckpoint)
 	if err != nil {
 		return err
 	}
@@ -278,7 +274,7 @@ func RestoreLastRead() error {
 	}
 
 	if fileInfo.Size() != 0 {
-		err = gob.NewDecoder(gobFile).Decode(&constants.LastReadPosition)
+		err = gob.NewDecoder(gobFile).Decode(&constants.LastReadCheckpoint)
 		if err != nil {
 			return err
 		}

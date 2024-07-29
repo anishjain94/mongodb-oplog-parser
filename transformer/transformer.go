@@ -2,6 +2,7 @@ package transformer
 
 import (
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 
@@ -12,20 +13,21 @@ import (
 )
 
 func GetSqlQueries(oplog models.Oplog) []string {
-	var query []string
-
 	switch oplog.Operation {
 	case constants.EnumOperationInsert:
-		query = GetInsertQueryFromOplog(oplog)
+		return GetInsertQueryFromOplog(oplog)
 
 	case constants.EnumOperationUpdate:
-		query = append(query, GetUpdateQueryFromOplog(oplog))
+		return []string{GetUpdateQueryFromOplog(oplog)}
 
 	case constants.EnumOperationDelete:
-		query = append(query, GetDeleteQueryFromOplog(oplog))
+		return []string{GetDeleteQueryFromOplog(oplog)}
+
+	default:
+		log.Printf("unknow operation: %v", oplog.Operation)
 	}
 
-	return query
+	return nil
 }
 
 // TODO: explore use of generics.

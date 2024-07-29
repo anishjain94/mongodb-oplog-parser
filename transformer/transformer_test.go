@@ -1,8 +1,6 @@
 package transformer
 
 import (
-	"encoding/json"
-	"log"
 	"reflect"
 	"testing"
 
@@ -57,7 +55,7 @@ var testOplogQuery = map[string]struct {
 				"_id": "635b79e231d82a8ab1de863b",
 			},
 		},
-		Want: []string{"UPDATE test.student SET is_graduated = true, name = 'dummy_name' WHERE _id = '635b79e231d82a8ab1de863b'"},
+		Want: []string{"UPDATE test.student SET is_graduated = true, name = 'dummy_name' WHERE _id = '635b79e231d82a8ab1de863b';\n\n"},
 	},
 	"updateQuerySetNull": {
 		Oplog: models.Oplog{
@@ -76,7 +74,7 @@ var testOplogQuery = map[string]struct {
 				"_id": "635b79e231d82a8ab1de863b",
 			},
 		},
-		Want: []string{"UPDATE test.student SET name = NULL, roll_no = NULL WHERE _id = '635b79e231d82a8ab1de863b'"},
+		Want: []string{"UPDATE test.student SET name = NULL, roll_no = NULL WHERE _id = '635b79e231d82a8ab1de863b';\n\n"},
 	},
 	"deleteQuery": {
 		Oplog: models.Oplog{
@@ -86,7 +84,7 @@ var testOplogQuery = map[string]struct {
 				"_id": "635b79e231d82a8ab1de863b",
 			},
 		},
-		Want: []string{"DELETE FROM test.student WHERE _id = '635b79e231d82a8ab1de863b'"},
+		Want: []string{"DELETE FROM test.student WHERE _id = '635b79e231d82a8ab1de863b';\n\n"},
 	},
 	"nestedObject1": {
 		Oplog: models.Oplog{
@@ -156,33 +154,6 @@ func TestOplogGenereateQuery(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestOpLogGeneric(t *testing.T) {
-	jsonStr := `{
-		"op": "u",
-		"ns": "test.student",
-		"o": {
-		   "$v": 2,
-		   "diff": {
-			  "u": {
-				 "is_graduated": true
-			  }
-		   }
-		},
-		 "o2": {
-		   "_id": "635b79e231d82a8ab1de863b"
-		}
-	 }`
-	var oplog models.Oplog
-	err := json.Unmarshal([]byte(jsonStr), &oplog)
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-
-	query := GetSqlQueries(oplog)
-
-	log.Println(query)
 }
 
 func TestPopulateValuesInQuery(t *testing.T) {
