@@ -81,12 +81,12 @@ func TestStoreCheckpoint(t *testing.T) {
 		},
 	}
 
-	err := SaveLastRead()
+	err := saveLastRead()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = RestoreLastRead()
+	err = restoreCheckpoint()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -29,7 +29,7 @@ func init() {
 		log.Fatal("unable to load .env file")
 	}
 
-	err = RestoreLastRead()
+	err = restoreCheckpoint()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -48,19 +48,14 @@ func main() {
 
 	oplogChannel := make(chan models.Oplog)
 
-	wg.Add(2)
-	go func() {
-		readFromSource(ctx, flagConfig, oplogChannel)
-		defer wg.Done()
-	}()
+	go readFromSource(ctx, flagConfig, oplogChannel)
 
-	defer wg.Done()
 	for {
 		select {
 		case <-sigChan:
 			log.Println("Shutdown signal received. Gracefully shutting down")
 
-			if err := SaveLastRead(); err != nil {
+			if err := saveLastRead(); err != nil {
 				log.Panic(err)
 			}
 
@@ -81,7 +76,6 @@ func main() {
 			return
 
 		case opLog := <-oplogChannel:
-			time.Sleep(3 * time.Second)
 			sqlQueries := transformer.GetSqlQueries(opLog)
 
 			switch flagConfig.OutputType {
@@ -237,7 +231,7 @@ func readFileContent(filePath string, channel chan<- models.Oplog) error {
 	return nil
 }
 
-func SaveLastRead() error {
+func saveLastRead() error {
 	gobFile, err := os.OpenFile("checkpoint.gob", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return err
@@ -261,7 +255,7 @@ func SaveLastRead() error {
 	return nil
 }
 
-func RestoreLastRead() error {
+func restoreCheckpoint() error {
 	gobFile, err := os.OpenFile("checkpoint.gob", os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return err
