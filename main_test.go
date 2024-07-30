@@ -10,7 +10,6 @@ import (
 	"github.com/anishjain94/mongo-oplog-to-sql/database/postgres"
 	"github.com/anishjain94/mongo-oplog-to-sql/models"
 	"github.com/anishjain94/mongo-oplog-to-sql/transformer"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func TestMain(t *testing.T) {
@@ -55,7 +54,7 @@ func TestMongo(t *testing.T) {
 
 	var queries []string
 	go func() {
-		mongodb.WatchCollection(ctx, oplogChannel)
+		mongodb.WatchCollection(ctx, nil, mongodb.DatabaseCollection{})
 	}()
 
 	for opLog := range oplogChannel {
@@ -76,9 +75,9 @@ func TestStoreCheckpoint(t *testing.T) {
 
 	constants.LastReadCheckpoint = constants.LastReadCheckpointConfig{
 		FileLastReadPosition: wantFileCheckpoint,
-		MongoLastReadPosition: primitive.Timestamp{
-			T: wantMongoCheckpoint,
-		},
+		// MongoLastReadPosition: primitive.Timestamp{
+		// 	T: wantMongoCheckpoint,
+		// },
 	}
 
 	err := saveLastRead()
@@ -97,7 +96,7 @@ func TestStoreCheckpoint(t *testing.T) {
 		t.Errorf("Got %v\nWant %v", gotFileCheckpoint, wantFileCheckpoint)
 	}
 
-	gotMongoCheckpoint := constants.LastReadCheckpoint.GetMongoCheckpoint()
+	gotMongoCheckpoint := constants.LastReadCheckpoint.GetMongoCheckpoint("")
 
 	if gotMongoCheckpoint.T != wantMongoCheckpoint {
 		t.Errorf("Got %v\nWant %v", gotFileCheckpoint, wantFileCheckpoint)

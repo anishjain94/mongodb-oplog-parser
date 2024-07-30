@@ -46,11 +46,9 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	oplogChannel := make(chan models.Oplog)
+	oplogChannel := readFromSource(ctx, flagConfig)
 
-	go readFromSource(ctx, flagConfig, oplogChannel)
-
-	for {
+	for _, channel := range oplogChannel {
 		select {
 		case <-sigChan:
 			log.Println("Shutdown signal received. Gracefully shutting down")
@@ -75,7 +73,16 @@ func main() {
 			}
 			return
 
-		case opLog := <-oplogChannel:
+		case opLog, ok := <-channel:
+			time.Sleep(3 * time.Second)
+			if !ok {
+				fmt.Println("channel closed")
+				// remove channel from slice?
+			}
+
+			fmt.Println("received from ")
+			// fmt.Println("received value", opLog)
+
 			sqlQueries := transformer.GetSqlQueries(opLog)
 
 			switch flagConfig.OutputType {
@@ -94,26 +101,41 @@ func main() {
 	}
 }
 
-func readFromSource(ctx context.Context, flagConfig *models.FlagConfig, oplogChannel chan<- models.Oplog) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
+func readFromSource(ctx context.Context, flagConfig *models.FlagConfig) []chan models.Oplog {
+	select {
+	case <-ctx.Done():
+		return nil
 
-		default:
-			switch flagConfig.InputType {
-			case constants.InputTypeJSON:
-				if err := readFileContent(flagConfig.InputFilePath, oplogChannel); err != nil {
-					log.Fatal(err)
-				}
-			case constants.InputTypeMongoDB:
-				if err := mongodb.InitializeMongoDb(); err != nil {
-					log.Fatal(err)
-				}
-				mongodb.WatchCollection(ctx, oplogChannel)
+	default:
+		switch flagConfig.InputType {
+		// case constants.InputTypeJSON:
+		// 	if err := readFileContent(flagConfig.InputFilePath, oplogChannel); err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		case constants.InputTypeMongoDB:
+			if err := mongodb.InitializeMongoDb(); err != nil {
+				log.Fatal(err)
 			}
+			dbCollections, err := mongodb.ListAllCollectionsAndDatabase(ctx)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			oplogChannel := make([]chan models.Oplog, len(dbCollections))
+			for i := range oplogChannel {
+				oplogChannel[i] = make(chan models.Oplog)
+			}
+
+			for i, dbCollection := range dbCollections {
+				go mongodb.WatchCollection(ctx, oplogChannel[i], dbCollection)
+			}
+
+			return oplogChannel
 		}
 	}
+
+	return nil
 }
 
 func parseFlags() *models.FlagConfig {
@@ -232,17 +254,13 @@ func readFileContent(filePath string, channel chan<- models.Oplog) error {
 }
 
 func saveLastRead() error {
+	fmt.Println("saving lastcheckpoint")
 	gobFile, err := os.OpenFile("checkpoint.gob", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return err
 	}
 
-	var lastReadCheckpoint constants.LastReadCheckpointConfig = constants.LastReadCheckpointConfig{
-		FileLastReadPosition:  constants.LastReadCheckpoint.GetFileCheckpoint(),
-		MongoLastReadPosition: constants.LastReadCheckpoint.GetMongoCheckpoint(),
-	}
-
-	err = gob.NewEncoder(gobFile).Encode(&lastReadCheckpoint)
+	err = gob.NewEncoder(gobFile).Encode(&constants.LastReadCheckpoint)
 	if err != nil {
 		return err
 	}

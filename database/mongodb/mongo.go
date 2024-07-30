@@ -27,59 +27,61 @@ func InitializeMongoDb() error {
 	return nil
 }
 
-func WatchCollection(ctx context.Context, opLog chan<- models.Oplog) error {
+func WatchCollection(ctx context.Context, opLogChannel chan<- models.Oplog, dbCollection DatabaseCollection) error {
 	collection := MongoClient.Database("local").Collection("oplog.rs")
-	lastReadPosition := constants.LastReadCheckpoint.GetMongoCheckpoint()
-	filter := buildFilter(lastReadPosition)
+	namespace := fmt.Sprintf("%s.%s", dbCollection.DatabaseName, dbCollection.CollectionName)
 
-	findOptions := options.Find().SetCursorType(options.TailableAwait)
-	cursor, err := collection.Find(ctx, filter, findOptions)
+	lastReadPosition := constants.LastReadCheckpoint.GetMongoCheckpoint(namespace)
+	filter := buildFilter(lastReadPosition, namespace)
+
+	cursor, err := collection.Find(ctx, filter)
 	if err != nil {
+		fmt.Println(err.Error())
 		return err
 	}
 	defer cursor.Close(ctx)
 
-	for {
+	for cursor.Next(ctx) {
+		var data bson.M
+		if err := cursor.Decode(&data); err != nil {
+			return err
+		}
+
+		jsonData, err := json.Marshal(data)
+		if err != nil {
+			return err
+		}
+
+		var entry models.Oplog
+		if err = json.Unmarshal(jsonData, &entry); err != nil {
+			return err
+		}
+
 		select {
+		case opLogChannel <- entry:
+			constants.LastReadCheckpoint.SetMongoCheckpoint(namespace, entry.Timestamp)
+
 		case <-ctx.Done():
-			return nil
-
-		default:
-			if cursor.TryNext(ctx) {
-				var data bson.M
-				if err := cursor.Decode(&data); err != nil {
-					return err
-				}
-
-				jsonData, err := json.Marshal(data)
-				if err != nil {
-					return err
-				}
-
-				var entry models.Oplog
-				if err = json.Unmarshal(jsonData, &entry); err != nil {
-					return err
-				}
-
-				select {
-				case opLog <- entry:
-					// Successfully sent the entry
-				case <-ctx.Done():
-					return fmt.Errorf("context cancelled while sending entry")
-				}
-
-				constants.LastReadCheckpoint.SetMongoCheckpoint(entry.Timestamp)
-			}
+			close(opLogChannel)
+			return fmt.Errorf("context cancelled while sending entry")
 		}
 	}
+
+	if err := cursor.Err(); err != nil {
+		fmt.Println(err.Error())
+		return err
+	}
+
+	return nil
 }
 
-func buildFilter(lastReadPosition primitive.Timestamp) bson.M {
+func buildFilter(lastReadPosition primitive.Timestamp, namespace string) bson.M {
 	filter := bson.M{
 		"op": bson.M{"$nin": []string{"n", "c"}},
 		"$and": []bson.M{
 			{"ns": bson.M{"$not": bson.M{"$regex": "^(admin|config)\\."}}},
 			{"ns": bson.M{"$not": bson.M{"$eq": ""}}},
+			{"ns": namespace},
 		},
 	}
 
@@ -88,4 +90,35 @@ func buildFilter(lastReadPosition primitive.Timestamp) bson.M {
 	}
 
 	return filter
+}
+
+func ListAllCollectionsAndDatabase(ctx context.Context) ([]DatabaseCollection, error) {
+	var dbCollections []DatabaseCollection
+
+	filter := bson.M{
+		"name": bson.M{
+			"$nin": []string{"admin", "config", "local"},
+		},
+	}
+
+	databaseNames, err := MongoClient.ListDatabaseNames(ctx, filter, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, databaseName := range databaseNames {
+		collections, err := MongoClient.Database(databaseName).ListCollectionNames(ctx, filter, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, collection := range collections {
+			dbCollections = append(dbCollections, DatabaseCollection{
+				DatabaseName:   databaseName,
+				CollectionName: collection,
+			})
+		}
+	}
+
+	return dbCollections, nil
 }

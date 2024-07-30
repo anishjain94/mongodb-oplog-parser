@@ -8,32 +8,38 @@ import (
 
 type LastReadCheckpointConfig struct {
 	FileLastReadPosition  int64
-	MongoLastReadPosition primitive.Timestamp
-	mutex                 sync.RWMutex
+	MongoLastReadPosition map[string]primitive.Timestamp
+	Mutex                 sync.RWMutex
 }
 
-var LastReadCheckpoint LastReadCheckpointConfig
+// TODO: use config manager to unify lock and unlock logic.
+var LastReadCheckpoint = LastReadCheckpointConfig{
+	MongoLastReadPosition: make(map[string]primitive.Timestamp),
+	Mutex:                 sync.RWMutex{},
+	FileLastReadPosition:  0,
+}
 
+// TODO: check locks and unlocks.
 func (c *LastReadCheckpointConfig) GetFileCheckpoint() int64 {
-	c.mutex.RLock()
-	defer c.mutex.RUnlock()
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
 	return c.FileLastReadPosition
 }
 
 func (c *LastReadCheckpointConfig) SetFileCheckpoint(val int64) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
 	c.FileLastReadPosition = val
 }
 
-func (c *LastReadCheckpointConfig) GetMongoCheckpoint() primitive.Timestamp {
-	c.mutex.RLock()
-	defer c.mutex.RUnlock()
-	return c.MongoLastReadPosition
+func (c *LastReadCheckpointConfig) GetMongoCheckpoint(key string) primitive.Timestamp {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+	return c.MongoLastReadPosition[key]
 }
 
-func (c *LastReadCheckpointConfig) SetMongoCheckpoint(val primitive.Timestamp) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	c.MongoLastReadPosition = val
+func (c *LastReadCheckpointConfig) SetMongoCheckpoint(key string, val primitive.Timestamp) {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+	c.MongoLastReadPosition[key] = val
 }
