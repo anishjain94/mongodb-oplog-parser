@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/anishjain94/mongo-oplog-to-sql/constants"
@@ -36,7 +37,7 @@ func WatchCollection(ctx context.Context, opLogChannel chan<- models.Oplog, dbCo
 
 	cursor, err := collection.Find(ctx, filter)
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Println(err.Error())
 		return err
 	}
 	defer cursor.Close(ctx)
@@ -68,7 +69,7 @@ func WatchCollection(ctx context.Context, opLogChannel chan<- models.Oplog, dbCo
 	}
 
 	if err := cursor.Err(); err != nil {
-		fmt.Println(err.Error())
+		log.Println(err.Error())
 		return err
 	}
 
@@ -92,7 +93,7 @@ func buildFilter(lastReadPosition primitive.Timestamp, namespace string) bson.M 
 	return filter
 }
 
-func ListAllCollectionsAndDatabase(ctx context.Context) ([]DatabaseCollection, error) {
+func ListAllDbsAndCollections(ctx context.Context) ([]DatabaseCollection, error) {
 	var dbCollections []DatabaseCollection
 
 	filter := bson.M{

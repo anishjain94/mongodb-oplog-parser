@@ -3,10 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/gob"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -41,53 +39,56 @@ func main() {
 
 	var wg sync.WaitGroup
 	flagConfig := parseFlags()
-	done := make(chan struct{}) //channel to notify when all goroutines finishes.
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	done := make(chan struct{})
 
 	oplogChannel := readFromSource(ctx, flagConfig)
 
-	for _, channel := range oplogChannel {
+	wg.Add(len(oplogChannel))
+	for i := range oplogChannel {
+		go processOplog(ctx, &models.ProcessOplog{
+			Wg:         &wg,
+			Channel:    oplogChannel[i],
+			FlagConfig: flagConfig,
+		})
+	}
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
+
+	log.Println("Shutdown signal received. Gracefully shutting down")
+	cancel()
+
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	if err := saveLastRead(); err != nil {
+		log.Panic(err)
+	}
+
+	select {
+	case <-done:
+		log.Println("gracefully shutdown")
+	case <-time.After(5 * time.Second):
+		log.Println("Shutdown timed out")
+	}
+}
+
+func processOplog(ctx context.Context, processOplog *models.ProcessOplog) {
+	defer processOplog.Wg.Done()
+	for {
 		select {
-		case <-sigChan:
-			log.Println("Shutdown signal received. Gracefully shutting down")
-
-			if err := saveLastRead(); err != nil {
-				log.Panic(err)
-			}
-
-			cancel()
-
-			go func() {
-				wg.Wait()
-				close(done)
-				fmt.Println("channels closed")
-			}()
-
-			select {
-			case <-done:
-				log.Println("gracefully shutdown")
-			case <-time.After(5 * time.Second):
-				log.Println("Shutdown timed out")
-			}
+		case <-ctx.Done():
 			return
 
-		case opLog, ok := <-channel:
-			time.Sleep(3 * time.Second)
-			if !ok {
-				fmt.Println("channel closed")
-				// remove channel from slice?
-			}
+		case oplog := <-processOplog.Channel:
+			sqlQueries := transformer.GetSqlQueries(oplog)
 
-			fmt.Println("received from ")
-			// fmt.Println("received value", opLog)
-
-			sqlQueries := transformer.GetSqlQueries(opLog)
-
-			switch flagConfig.OutputType {
+			switch processOplog.FlagConfig.OutputType {
 			case constants.OutputTypeSQL:
-				if err := createOutputFile(*flagConfig, sqlQueries); err != nil {
+				if err := createOutputFile(*processOplog.FlagConfig, sqlQueries); err != nil {
 					log.Fatalln(err)
 				}
 
@@ -108,16 +109,18 @@ func readFromSource(ctx context.Context, flagConfig *models.FlagConfig) []chan m
 
 	default:
 		switch flagConfig.InputType {
-		// case constants.InputTypeJSON:
-		// 	if err := readFileContent(flagConfig.InputFilePath, oplogChannel); err != nil {
-		// 		log.Fatal(err)
-		// 	}
+		case constants.InputTypeJSON:
+			oplogChannel := make(chan models.Oplog)
+			if err := readFileContent(flagConfig.InputFilePath, oplogChannel); err != nil {
+				log.Fatal(err)
+			}
+			return []chan models.Oplog{oplogChannel}
 
 		case constants.InputTypeMongoDB:
 			if err := mongodb.InitializeMongoDb(); err != nil {
 				log.Fatal(err)
 			}
-			dbCollections, err := mongodb.ListAllCollectionsAndDatabase(ctx)
+			dbCollections, err := mongodb.ListAllDbsAndCollections(ctx)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -254,13 +257,12 @@ func readFileContent(filePath string, channel chan<- models.Oplog) error {
 }
 
 func saveLastRead() error {
-	fmt.Println("saving lastcheckpoint")
 	gobFile, err := os.OpenFile("checkpoint.gob", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return err
 	}
 
-	err = gob.NewEncoder(gobFile).Encode(&constants.LastReadCheckpoint)
+	err = constants.LastReadCheckpoint.EncodeToGob(gobFile)
 	if err != nil {
 		return err
 	}
@@ -274,7 +276,11 @@ func saveLastRead() error {
 }
 
 func restoreCheckpoint() error {
-	gobFile, err := os.OpenFile("checkpoint.gob", os.O_RDWR|os.O_CREATE, 0666)
+	gobFile, err := os.OpenFile("checkpoint.gob", os.O_RDWR, 0666)
+	if os.IsNotExist(err) {
+		return nil //if no checkpoint is created, then return nil
+	}
+
 	if err != nil {
 		return err
 	}
@@ -286,7 +292,7 @@ func restoreCheckpoint() error {
 	}
 
 	if fileInfo.Size() != 0 {
-		err = gob.NewDecoder(gobFile).Decode(&constants.LastReadCheckpoint)
+		err = constants.LastReadCheckpoint.DecodeFromGob(gobFile)
 		if err != nil {
 			return err
 		}

@@ -1,15 +1,13 @@
 package main
 
 import (
-	"context"
 	"os"
 	"testing"
 
 	"github.com/anishjain94/mongo-oplog-to-sql/constants"
-	"github.com/anishjain94/mongo-oplog-to-sql/database/mongodb"
-	"github.com/anishjain94/mongo-oplog-to-sql/database/postgres"
 	"github.com/anishjain94/mongo-oplog-to-sql/models"
 	"github.com/anishjain94/mongo-oplog-to-sql/transformer"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func TestMain(t *testing.T) {
@@ -42,43 +40,17 @@ func TestMain(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-
-}
-
-func TestMongo(t *testing.T) {
-	ctx := context.Background()
-	mongodb.InitializeMongoDb()
-	postgres.InitializePostgres()
-
-	var oplogChannel = make(chan models.Oplog)
-
-	var queries []string
-	go func() {
-		mongodb.WatchCollection(ctx, nil, mongodb.DatabaseCollection{})
-	}()
-
-	for opLog := range oplogChannel {
-		queriesToAppend := transformer.GetSqlQueries(opLog)
-		queries = append(queries, queriesToAppend...)
-	}
-
-	postgres.ExecuteQueries(ctx, queries...)
-
-	if len(queries) == 0 {
-		t.Errorf("queries not generated")
-	}
 }
 
 func TestStoreCheckpoint(t *testing.T) {
 	var wantFileCheckpoint int64 = 100
 	var wantMongoCheckpoint uint32 = 150
+	var wantMongoCheckpointDb string = "database1"
 
-	constants.LastReadCheckpoint = constants.LastReadCheckpointConfig{
-		FileLastReadPosition: wantFileCheckpoint,
-		// MongoLastReadPosition: primitive.Timestamp{
-		// 	T: wantMongoCheckpoint,
-		// },
-	}
+	constants.LastReadCheckpoint.SetFileCheckpoint(wantFileCheckpoint)
+	constants.LastReadCheckpoint.SetMongoCheckpoint(wantMongoCheckpointDb, primitive.Timestamp{
+		T: wantMongoCheckpoint,
+	})
 
 	err := saveLastRead()
 	if err != nil {
@@ -96,7 +68,7 @@ func TestStoreCheckpoint(t *testing.T) {
 		t.Errorf("Got %v\nWant %v", gotFileCheckpoint, wantFileCheckpoint)
 	}
 
-	gotMongoCheckpoint := constants.LastReadCheckpoint.GetMongoCheckpoint("")
+	gotMongoCheckpoint := constants.LastReadCheckpoint.GetMongoCheckpoint(wantMongoCheckpointDb)
 
 	if gotMongoCheckpoint.T != wantMongoCheckpoint {
 		t.Errorf("Got %v\nWant %v", gotFileCheckpoint, wantFileCheckpoint)

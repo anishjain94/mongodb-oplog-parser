@@ -6,26 +6,26 @@ import (
 
 type ConfigManager[T any] struct {
 	mutex sync.RWMutex
-	Data  map[string]T
+	data  map[string]T
 }
 
 func NewConfigManager[T any]() *ConfigManager[T] {
 	return &ConfigManager[T]{
-		Data: make(map[string]T),
+		data: make(map[string]T),
 	}
 }
 
 func (c *ConfigManager[T]) Get(key string) (T, bool) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
-	val, ok := c.Data[key]
+	val, ok := c.data[key]
 	return val, ok
 }
 
 func (c *ConfigManager[T]) Set(key string, value T) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	c.Data[key] = value
+	c.data[key] = value
 }
 
 type GlobalConfigs struct {
