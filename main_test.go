@@ -2,8 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
-	"os"
+	"sync"
 	"testing"
 
 	"github.com/anishjain94/mongo-oplog-to-sql/constants"
@@ -24,27 +23,28 @@ func fileOplogReading() error {
 	inputFile := "example-input-oplog.json"
 	outputFile := "example-output.sql"
 
-	config := models.FlagConfig{
+	flagConfig := &models.FlagConfig{
 		InputFilePath:  inputFile,
+		InputType:      constants.InputTypeJSON,
 		OutputFilePath: outputFile,
+		OutputType:     constants.OutputTypeSQL,
+	}
+	var wg sync.WaitGroup
+
+	oplogChannels := readFromSource(ctx, flagConfig)
+
+	wg.Add(len(oplogChannels))
+	for _, ch := range oplogChannels {
+		go func(channel chan models.Oplog) {
+			defer wg.Done()
+			processOplog(ctx, &models.ProcessOplog{
+				Channel:    channel,
+				FlagConfig: flagConfig,
+			})
+		}(ch)
 	}
 
-	oplogChannel, err := readFileContent(ctx, config.InputFilePath)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	for i := range oplogChannel {
-		go processOplog(ctx, &models.ProcessOplog{
-			Channel:    oplogChannel[i],
-			FlagConfig: &config,
-		})
-	}
-
-	_, err = os.ReadFile(config.OutputFilePath)
-	if err != nil {
-		return err
-	}
+	wg.Wait()
 	return nil
 }
 
