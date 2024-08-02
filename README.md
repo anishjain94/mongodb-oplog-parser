@@ -4,6 +4,12 @@
 
 This Go project implements a parser that converts MongoDB operation log (oplog) entries into equivalent SQL statements. It's designed to facilitate data migration from MongoDB to a relational database management system (RDBMS).
 
+
+
+https://github.com/user-attachments/assets/486d4c1d-b03b-42cb-96a3-676a048664fb
+
+
+
 ## Background
 
 This tool simplifies the migration process by translating MongoDB's JSON documents into corresponding SQL operations.
