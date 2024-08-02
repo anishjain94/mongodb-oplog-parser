@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"hash/fnv"
 	"io"
 	"log"
 	"os"
 	"os/signal"
+	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -41,15 +44,17 @@ func main() {
 	flagConfig := parseFlags()
 	done := make(chan struct{})
 
-	oplogChannel := readFromSource(ctx, flagConfig)
+	oplogChannels := readFromSource(ctx, flagConfig)
 
-	wg.Add(len(oplogChannel))
-	for i := range oplogChannel {
-		go processOplog(ctx, &models.ProcessOplog{
-			Wg:         &wg,
-			Channel:    oplogChannel[i],
-			FlagConfig: flagConfig,
-		})
+	wg.Add(len(oplogChannels))
+	for _, ch := range oplogChannels {
+		go func(channel chan models.Oplog) {
+			defer wg.Done()
+			processOplog(ctx, &models.ProcessOplog{
+				Channel:    channel,
+				FlagConfig: flagConfig,
+			})
+		}(ch)
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -77,7 +82,6 @@ func main() {
 }
 
 func processOplog(ctx context.Context, processOplog *models.ProcessOplog) {
-	defer processOplog.Wg.Done()
 	for {
 		select {
 		case <-ctx.Done():
@@ -110,11 +114,11 @@ func readFromSource(ctx context.Context, flagConfig *models.FlagConfig) []chan m
 	default:
 		switch flagConfig.InputType {
 		case constants.InputTypeJSON:
-			oplogChannel := make(chan models.Oplog)
-			if err := readFileContent(flagConfig.InputFilePath, oplogChannel); err != nil {
+			channel, err := readFileContent(ctx, flagConfig.InputFilePath)
+			if err != nil {
 				log.Fatal(err)
 			}
-			return []chan models.Oplog{oplogChannel}
+			return channel
 
 		case constants.InputTypeMongoDB:
 			if err := mongodb.InitializeMongoDb(); err != nil {
@@ -216,44 +220,88 @@ func createOutputFile(flagConfig models.FlagConfig, queries []string) error {
 	return nil
 }
 
-func readFileContent(filePath string, channel chan<- models.Oplog) error {
+// using round robin to consistently distribute oplogs to channels to be consumed.
+func readFileContent(ctx context.Context, filePath string) ([]chan models.Oplog, error) {
+	noOfChannels := 10
+	channels := make([]chan models.Oplog, noOfChannels)
+	for i := range channels {
+		channels[i] = make(chan models.Oplog)
+	}
+
+	databaseCollections := make(map[string]int)
+	var mu sync.Mutex
+
 	file, err := os.Open(filePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer file.Close()
 
 	lastReadPoistion := constants.LastReadCheckpoint.GetFileCheckpoint()
 	_, err = file.Seek(lastReadPoistion, io.SeekStart)
 	if err != nil {
-		return err
+		log.Fatal(err)
 	}
 
 	decoder := json.NewDecoder(file)
 	if lastReadPoistion == 0 {
 		_, err = decoder.Token()
 		if err != nil {
-			return err
+			log.Fatal(err)
 		}
 	}
 
-	for decoder.More() {
-		var decodedData models.Oplog
-		err = decoder.Decode(&decodedData)
-		if err != nil {
-			return err
+	go func() {
+		defer file.Close()
+		defer func() {
+			for i := range channels {
+				close(channels[i])
+			}
+		}()
+		for {
+			if decoder.More() {
+				var decodedData models.Oplog
+				err = decoder.Decode(&decodedData)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				namespace := strings.Split(decodedData.Namespace, ".")
+				if slices.Contains(constants.NotAllowedNameSpaceForFile, namespace[0]) ||
+					!slices.Contains(constants.AllowedOperations, decodedData.Operation) {
+					continue
+				}
+
+				mu.Lock()
+				channelIndex, exists := databaseCollections[decodedData.Namespace]
+				if !exists {
+					channelIndex = hashNamespace(decodedData.Namespace, len(channels))
+					databaseCollections[decodedData.Namespace] = channelIndex
+				}
+				mu.Unlock()
+
+				select {
+				case <-ctx.Done():
+					return
+
+				case channels[channelIndex] <- decodedData:
+					readPosition, err := file.Seek(0, io.SeekCurrent)
+					if err != nil {
+						log.Fatal(err)
+					}
+					constants.LastReadCheckpoint.SetFileCheckpoint(readPosition)
+				}
+			}
 		}
+	}()
 
-		readPosition, err := file.Seek(0, io.SeekCurrent)
-		if err != nil {
-			return err
-		}
-		constants.LastReadCheckpoint.SetFileCheckpoint(readPosition)
+	return channels, nil
+}
 
-		channel <- decodedData
-	}
+func hashNamespace(namespace string, lenght int) int {
+	h := fnv.New32a()
+	h.Write([]byte(namespace))
+	return int(h.Sum32()) % lenght
 
-	return nil
 }
 
 func saveLastRead() error {

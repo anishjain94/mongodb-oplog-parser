@@ -1,8 +1,6 @@
 package models
 
 import (
-	"sync"
-
 	"github.com/anishjain94/mongo-oplog-to-sql/constants"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -28,7 +26,6 @@ type FlagConfig struct {
 }
 
 type ProcessOplog struct {
-	Wg         *sync.WaitGroup
 	Channel    <-chan Oplog
 	FlagConfig *FlagConfig
 }

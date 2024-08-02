@@ -1,44 +1,56 @@
 package main
 
 import (
+	"context"
+	"log"
 	"os"
 	"testing"
 
 	"github.com/anishjain94/mongo-oplog-to-sql/constants"
 	"github.com/anishjain94/mongo-oplog-to-sql/models"
-	"github.com/anishjain94/mongo-oplog-to-sql/transformer"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func TestMain(t *testing.T) {
-	var queries []string
+	err := fileOplogReading()
+	if err != nil {
+		t.Error(err)
+	}
+}
 
-	inputFile := "example-input.json"
+func fileOplogReading() error {
+	ctx := context.Background()
+
+	inputFile := "example-input-oplog.json"
 	outputFile := "example-output.sql"
 
 	config := models.FlagConfig{
 		InputFilePath:  inputFile,
 		OutputFilePath: outputFile,
 	}
-	var oplogChannel = make(chan models.Oplog)
 
-	go func() {
-		err := readFileContent(config.InputFilePath, oplogChannel)
-		if err != nil {
-			t.Error(err)
-		}
-		close(oplogChannel)
-	}()
-
-	for opLog := range oplogChannel {
-		queriesToAppend := transformer.GetSqlQueries(opLog)
-		queries = append(queries, queriesToAppend...)
-	}
-	createOutputFile(config, queries)
-
-	_, err := os.ReadFile(config.OutputFilePath)
+	oplogChannel, err := readFileContent(ctx, config.InputFilePath)
 	if err != nil {
-		t.Error(err)
+		log.Fatal(err)
+	}
+
+	for i := range oplogChannel {
+		go processOplog(ctx, &models.ProcessOplog{
+			Channel:    oplogChannel[i],
+			FlagConfig: &config,
+		})
+	}
+
+	_, err = os.ReadFile(config.OutputFilePath)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func BenchmarkFileOplog(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		fileOplogReading()
 	}
 }
 
