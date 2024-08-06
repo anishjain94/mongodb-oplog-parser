@@ -48,7 +48,7 @@ func main() {
 
 	wg.Add(len(oplogChannels))
 	for _, ch := range oplogChannels {
-		go func(channel chan models.Oplog) {
+		go func(channel chan models.OplogEntry) {
 			defer wg.Done()
 			processOplog(ctx, &models.ProcessOplog{
 				Channel:    channel,
@@ -106,7 +106,7 @@ func processOplog(ctx context.Context, processOplog *models.ProcessOplog) {
 	}
 }
 
-func readFromSource(ctx context.Context, flagConfig *models.FlagConfig) []chan models.Oplog {
+func readFromSource(ctx context.Context, flagConfig *models.FlagConfig) []chan models.OplogEntry {
 	select {
 	case <-ctx.Done():
 		return nil
@@ -129,9 +129,9 @@ func readFromSource(ctx context.Context, flagConfig *models.FlagConfig) []chan m
 				log.Fatal(err)
 			}
 
-			oplogChannel := make([]chan models.Oplog, len(dbCollections))
+			oplogChannel := make([]chan models.OplogEntry, len(dbCollections))
 			for i := range oplogChannel {
-				oplogChannel[i] = make(chan models.Oplog)
+				oplogChannel[i] = make(chan models.OplogEntry)
 			}
 
 			for i, dbCollection := range dbCollections {
@@ -221,11 +221,11 @@ func createOutputFile(flagConfig models.FlagConfig, queries []string) error {
 }
 
 // using round robin to consistently distribute oplogs to channels to be consumed.
-func readFileContent(ctx context.Context, filePath string) ([]chan models.Oplog, error) {
+func readFileContent(ctx context.Context, filePath string) ([]chan models.OplogEntry, error) {
 	noOfChannels := 10
-	channels := make([]chan models.Oplog, noOfChannels)
+	channels := make([]chan models.OplogEntry, noOfChannels)
 	for i := range channels {
-		channels[i] = make(chan models.Oplog)
+		channels[i] = make(chan models.OplogEntry)
 	}
 
 	databaseCollections := make(map[string]int)
@@ -259,7 +259,7 @@ func readFileContent(ctx context.Context, filePath string) ([]chan models.Oplog,
 		}()
 		for {
 			if decoder.More() {
-				var decodedData models.Oplog
+				var decodedData models.OplogEntry
 				err = decoder.Decode(&decodedData)
 				if err != nil {
 					log.Fatal(err)

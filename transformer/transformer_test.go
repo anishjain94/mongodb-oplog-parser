@@ -8,11 +8,11 @@ import (
 )
 
 var testOplogQuery = map[string]struct {
-	models.Oplog
+	models.OplogEntry
 	Want []string
 }{
 	"insertSingle": {
-		Oplog: models.Oplog{
+		OplogEntry: models.OplogEntry{
 			Operation: "i",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -25,7 +25,7 @@ var testOplogQuery = map[string]struct {
 		},
 	},
 	"insertSingleNewColumn": {
-		Oplog: models.Oplog{
+		OplogEntry: models.OplogEntry{
 			Operation: "i",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -39,7 +39,7 @@ var testOplogQuery = map[string]struct {
 		},
 	},
 	"updateQuery": {
-		Oplog: models.Oplog{
+		OplogEntry: models.OplogEntry{
 			Operation: "u",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -58,7 +58,7 @@ var testOplogQuery = map[string]struct {
 		Want: []string{"UPDATE test.student SET is_graduated = true, name = 'dummy_name' WHERE _id = '635b79e231d82a8ab1de863b';\n\n"},
 	},
 	"updateQuerySetNull": {
-		Oplog: models.Oplog{
+		OplogEntry: models.OplogEntry{
 			Operation: "u",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -77,7 +77,7 @@ var testOplogQuery = map[string]struct {
 		Want: []string{"UPDATE test.student SET name = NULL, roll_no = NULL WHERE _id = '635b79e231d82a8ab1de863b';\n\n"},
 	},
 	"deleteQuery": {
-		Oplog: models.Oplog{
+		OplogEntry: models.OplogEntry{
 			Operation: "d",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -87,7 +87,7 @@ var testOplogQuery = map[string]struct {
 		Want: []string{"DELETE FROM test.student WHERE _id = '635b79e231d82a8ab1de863b';\n\n"},
 	},
 	"nestedObject1": {
-		Oplog: models.Oplog{
+		OplogEntry: models.OplogEntry{
 			Operation: "i",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -114,7 +114,7 @@ var testOplogQuery = map[string]struct {
 		},
 	},
 	"nestedObject2": {
-		Oplog: models.Oplog{
+		OplogEntry: models.OplogEntry{
 			Operation: "i",
 			Namespace: "test.student",
 			Object: map[string]interface{}{
@@ -147,7 +147,7 @@ var testOplogQuery = map[string]struct {
 func TestOplogGenereateQuery(t *testing.T) {
 	for key, value := range testOplogQuery {
 		t.Run(key, func(t *testing.T) {
-			got := GetSqlQueries(value.Oplog)
+			got := GetSqlQueries(value.OplogEntry)
 
 			if len(value.Want) != 0 && !reflect.DeepEqual(got, value.Want) {
 				t.Errorf("got : %s\nwant : %s", got, value.Want)

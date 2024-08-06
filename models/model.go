@@ -5,7 +5,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-type Oplog struct {
+// TODO: can create common methods to get tablename, databasename and schema name
+type OplogEntry struct {
 	Operation constants.EnumOperation `bson:"op" json:"op"`                     //operation
 	Namespace string                  `bson:"ns" json:"ns"`                     //namespace -> database.table_name
 	Timestamp primitive.Timestamp     `bson:"ts" json:"ts"`                     //timestamp
@@ -26,6 +27,6 @@ type FlagConfig struct {
 }
 
 type ProcessOplog struct {
-	Channel    <-chan Oplog
+	Channel    <-chan OplogEntry
 	FlagConfig *FlagConfig
 }

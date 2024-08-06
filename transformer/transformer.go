@@ -12,7 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-func GetSqlQueries(oplog models.Oplog) []string {
+func GetSqlQueries(oplog models.OplogEntry) []string {
 	switch oplog.Operation {
 	case constants.EnumOperationInsert:
 		return GetInsertQueryFromOplog(oplog)
@@ -51,9 +51,9 @@ func populateValuesInQuery(query string, values []interface{}) string {
 	return query
 }
 
-func GetInsertQueryFromOplog(opLog models.Oplog) []string {
+func GetInsertQueryFromOplog(opLog models.OplogEntry) []string {
 	var queries []string
-	opLogNameSpace := strings.Split(opLog.Namespace, ".")
+	opLogNameSpace := strings.Split(opLog.Namespace, ".") //TODO: can be made method.
 	schemaName := opLogNameSpace[0]
 	parentTableName := opLogNameSpace[1]
 
@@ -252,7 +252,7 @@ func getDataType(value interface{}) string {
 	return dataType
 }
 
-func GetUpdateQueryFromOplog(opLog models.Oplog) string {
+func GetUpdateQueryFromOplog(opLog models.OplogEntry) string {
 	dataToUpdate := make(map[string]interface{})
 	dataToSetNull := make(map[string]interface{})
 
@@ -298,7 +298,7 @@ func GetUpdateQueryFromOplog(opLog models.Oplog) string {
 	return updateQuery
 }
 
-func GetDeleteQueryFromOplog(opLog models.Oplog) string {
+func GetDeleteQueryFromOplog(opLog models.OplogEntry) string {
 	where := make([]string, 0, len(opLog.Object))
 	values := make([]interface{}, 0, len(opLog.Object))
 

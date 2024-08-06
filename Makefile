@@ -19,6 +19,8 @@ build:
 clean:
 	@echo "Cleaning up..."
 	go clean
+	rm *.gob
+	rm *.sql
 	rm -f $(BINARY_NAME)
 
 test:

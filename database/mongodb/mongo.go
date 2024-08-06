@@ -28,7 +28,7 @@ func InitializeMongoDb() error {
 	return nil
 }
 
-func WatchCollection(ctx context.Context, opLogChannel chan<- models.Oplog, dbCollection DatabaseCollection) error {
+func WatchCollection(ctx context.Context, opLogChannel chan<- models.OplogEntry, dbCollection DatabaseCollection) error {
 	collection := MongoClient.Database("local").Collection("oplog.rs")
 	namespace := fmt.Sprintf("%s.%s", dbCollection.DatabaseName, dbCollection.CollectionName)
 
@@ -53,7 +53,7 @@ func WatchCollection(ctx context.Context, opLogChannel chan<- models.Oplog, dbCo
 			return err
 		}
 
-		var entry models.Oplog
+		var entry models.OplogEntry
 		if err = json.Unmarshal(jsonData, &entry); err != nil {
 			return err
 		}

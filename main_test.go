@@ -35,7 +35,7 @@ func fileOplogReading() error {
 
 	wg.Add(len(oplogChannels))
 	for _, ch := range oplogChannels {
-		go func(channel chan models.Oplog) {
+		go func(channel chan models.OplogEntry) {
 			defer wg.Done()
 			processOplog(ctx, &models.ProcessOplog{
 				Channel:    channel,
