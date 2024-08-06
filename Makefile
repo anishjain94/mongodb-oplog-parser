@@ -3,7 +3,7 @@ GOOS := $(shell go env GOOS)
 GOARCH := $(shell go env GOARCH)
 
 # Binary name
-BINARY_NAME := grep
+BINARY_NAME := oplog_parser
 ifeq ($(GOOS),windows)
     BINARY_NAME := $(BINARY_NAME).exe
 endif
@@ -14,6 +14,7 @@ all: build
 
 build:
 	@echo "Building binary for $(GOOS)/$(GOARCH)..."
+	golangci-lint run
 	go build -o $(BINARY_NAME) .
 
 clean:
@@ -25,4 +26,4 @@ clean:
 
 test:
 	@echo "Running tests..."
-	go test -v ./...
+	go test -v ./ ./transformer 

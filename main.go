@@ -135,7 +135,12 @@ func readFromSource(ctx context.Context, flagConfig *models.FlagConfig) []chan m
 			}
 
 			for i, dbCollection := range dbCollections {
-				go mongodb.WatchCollection(ctx, oplogChannel[i], dbCollection)
+				go func() {
+					err := mongodb.WatchCollection(ctx, oplogChannel[i], dbCollection)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}()
 			}
 
 			return oplogChannel

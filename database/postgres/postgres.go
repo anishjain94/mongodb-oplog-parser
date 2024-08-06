@@ -41,7 +41,7 @@ func GetDb(ctx context.Context) *gorm.DB {
 func ExecuteQueries(ctx context.Context, queries ...string) error {
 	db := GetDb(ctx)
 
-	db.Transaction(func(tx *gorm.DB) error {
+	err := db.Transaction(func(tx *gorm.DB) error {
 		for _, query := range queries {
 			result := tx.Exec(query)
 
@@ -52,6 +52,9 @@ func ExecuteQueries(ctx context.Context, queries ...string) error {
 		}
 		return nil
 	})
+	if err != nil{
+		return nil
+	}
 
 	return nil
 }

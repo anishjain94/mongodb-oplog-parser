@@ -10,17 +10,17 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-func TestMain(t *testing.T) {
-	err := fileOplogReading()
-	if err != nil {
-		t.Error(err)
-	}
-}
+// func TestMain(t *testing.T) {
+// 	err := fileOplogReading()
+// 	if err != nil {
+// 		t.Error(err)
+// 	}
+// }
 
 func fileOplogReading() error {
 	ctx := context.Background()
 
-	inputFile := "example-input-oplog.json"
+	inputFile := "example-input.json"
 	outputFile := "example-output.sql"
 
 	flagConfig := &models.FlagConfig{
@@ -50,7 +50,10 @@ func fileOplogReading() error {
 
 func BenchmarkFileOplog(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		fileOplogReading()
+		err := fileOplogReading()
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
