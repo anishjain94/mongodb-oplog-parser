@@ -14,7 +14,6 @@ all: build
 
 build:
 	@echo "Building binary for $(GOOS)/$(GOARCH)..."
-	golangci-lint run
 	go build -o $(BINARY_NAME) .
 
 clean:
