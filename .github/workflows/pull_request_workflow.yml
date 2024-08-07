@@ -27,16 +27,38 @@ jobs:
       - name: Run test
         run: make test
 
-  deploy:
+  build_and_push:
     needs: pr_compile_lint_test
     if: github.event.pull_request.merged == true || github.event_name == 'push'
     runs-on: self-hosted
     steps:
-      - name: checkout branch
+      - name: Checkout branch
         uses: actions/checkout@v4
 
-      - name: build artifact
-        run: echo "building artifact"
+      - name: Build docker image
+        run: docker build -t oplog_parser .
 
-      - name: push artifact
-        run: echo "pushing artifact"
+      - name: tag and push docker image to local registry
+        run: |
+          docker tag oplog_parser localhost:5000/oplog_parser:latest
+          docker push localhost:5000/oplog_parser:latest
+
+  deploy:
+    needs: build_and_push
+    runs-on: self-hosted
+    steps:
+      - name: Pull docker image from local registry
+        run: docker pull localhost:5000/oplog_parser:latest
+
+      - name: Stop and remove existing container
+        run: |
+          if [ "$(docker ps -q -f name=oplog_parser)" ]; then
+            docker stop oplog_parser
+            docker rm oplog_parser
+          fi
+
+      - name: Run docker container
+        run: docker run -d --name oplog_parser -p 8080:8080 localhost:5000/oplog_parser:latest
+
+      - name: Verify container is running
+        run: docker ps -f name=oplog_parser
