@@ -13,6 +13,12 @@ jobs:
       - name: checkout branch
         uses: actions/checkout@v4
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
       - name: Install dependencies
         run: make build
 
