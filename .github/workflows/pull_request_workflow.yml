@@ -2,12 +2,11 @@ name: Makefile CI
 
 on:
   push:
-    branches: ['main']
+    branches: ['main', 'dev', 'prod', 'staging']
   pull_request:
-    branches: ['main']
 
 jobs:
-  build:
+  pr_compile_lint_test:
     runs-on: ubuntu-latest
     steps:
       - name: checkout branch
@@ -27,3 +26,17 @@ jobs:
 
       - name: Run test
         run: make test
+
+  build_push:
+    needs: pr_compile_lint_test
+
+    if: github.event.pull_request.merged == true || github.event.pull_request.commited == true
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout branch
+        uses: actions/checkout@v4
+
+      - name: build artifact
+        uses: echo "building artifact"
