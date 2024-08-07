@@ -1,0 +1,47 @@
+name: Pull Request CI
+
+on:
+  push:
+    branches: ['main', 'dev', 'prod', 'staging']
+  pull_request:
+
+jobs:
+  pr_compile_lint_test:
+    runs-on: self-hosted
+    steps:
+      - name: checkout branch
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Install dependencies
+        run: make build
+
+      - name: Golang ci lint
+        uses: golangci/golangci-lint-action@v6.1.0
+        with:
+          cache: true
+
+      - name: Run test
+        run: make test
+
+  build_push:
+    needs: pr_compile_lint_test
+
+    if: github.event.pull_request.merged == true || github.event.pull_request.commited == true
+
+    runs-on: self-hosted
+
+    steps:
+      - name: checkout branch
+        uses: actions/checkout@v4
+
+      - name: build artifact
+        run: echo "building artifact"
+
+      - name: push artifact
+        run: echo "pushing artifact"
