@@ -1,5 +1,8 @@
 # TODO: add multi-stage build
-FROM golang:latest
+# TODO: use an alpine golang image
+# TODO: ensure that docker image runs in arm and well as amd64.
+
+FROM golang:latest 
 
 WORKDIR /app
 

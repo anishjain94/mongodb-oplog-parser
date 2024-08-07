@@ -1,4 +1,4 @@
-name: Makefile CI
+name: Pull Request CI
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   pr_compile_lint_test:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: checkout branch
         uses: actions/checkout@v4
@@ -21,8 +21,10 @@ jobs:
       - name: Install dependencies
         run: make build
 
-      - name: Lint
-        uses: golangci/golangci-lint-action@v3.7.0
+      - name: Golang ci lint
+        uses: golangci/golangci-lint-action@v6.1.0
+        with:
+          cache: true
 
       - name: Run test
         run: make test
@@ -32,7 +34,7 @@ jobs:
 
     if: github.event.pull_request.merged == true || github.event.pull_request.commited == true
 
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       - name: checkout branch
@@ -40,3 +42,6 @@ jobs:
 
       - name: build artifact
         run: echo "building artifact"
+
+      - name: push artifact
+        run: echo "pushing artifact"
