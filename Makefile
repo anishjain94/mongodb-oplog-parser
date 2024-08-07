@@ -25,4 +25,4 @@ clean:
 
 test:
 	@echo "Running tests..."
-	go test -v ./ ./transformer 
+	go test -v ./transformer 
