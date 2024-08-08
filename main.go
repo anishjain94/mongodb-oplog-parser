@@ -27,7 +27,7 @@ import (
 func init() {
 	err := godotenv.Load("./.env")
 	if err != nil {
-		log.Fatal("unable to load .env file")
+		log.Print("unable to load .env file")
 	}
 
 	err = restoreCheckpoint()
