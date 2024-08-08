@@ -1,4 +1,4 @@
-FROM golang:alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:alpine AS builder
 
 WORKDIR /app
 
@@ -7,9 +7,16 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o oplog_parser .
+# Use ARG for specifying target platform
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+RUN echo "I am running on $BUILDPLATFORM, building for $TARGETPLATFORM"
 
-FROM alpine:latest
+# Build the application
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o oplog_parser .
+
+# Use a multi-arch base image for the final stage
+FROM --platform=$TARGETPLATFORM alpine:latest
 
 WORKDIR /root/
 
